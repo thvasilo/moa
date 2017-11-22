@@ -35,6 +35,7 @@ import java.util.HashMap;
 /**
  * An ensemble of FIMTQR trees that are trained in the bagging manner as described in the ARF paper
  * Will need to pull out histograms from trees, in order to combine and then provide quantile prediction.
+ * Usage: EvaluatePrequentialRegression -e (IntervalRegressionPerformanceEvaluator -w 10000) -l meta.OnlineQRF -s (ArffFileStream -f somefile.arff)  -f 10000
  */
 public class OnlineQRF  extends AbstractClassifier implements Regressor {
   private double quantileUpper = 0.95;
@@ -64,14 +65,13 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
     }
     // Get quantile from merged histograms
     assert prevHist != null;
-    // Here we get both upper and lower quantiles, for now only return the upper
-    // until we figure out how to use both for evaluation.
     HashMap quantilePredictions = prevHist.percentiles(quantileLower, quantileUpper);
     if (quantilePredictions.isEmpty()) { // TODO: Why are predictions some times empty? From code seems like empty histogram
-      return new double[]{0};
+      return new double[]{0, 0};
     }
-    double upperPred = (double) quantilePredictions.get(quantileUpper);
-    return new double[]{upperPred};
+    double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about use a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
+    double lowerPred = (double) quantilePredictions.get(quantileLower);
+    return new double[]{lowerPred, upperPred};
   }
 
   @Override

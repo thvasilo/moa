@@ -29,7 +29,6 @@ import com.github.javacliparser.IntOption;
 import moa.tasks.TaskMonitor;
 
 import com.yahoo.labs.samoa.instances.Instance;
-import com.yahoo.labs.samoa.instances.InstanceData;
 import com.yahoo.labs.samoa.instances.Prediction;
 
 /**
@@ -46,7 +45,7 @@ public class WindowRegressionPerformanceEvaluator extends AbstractOptionHandler
     public IntOption widthOption = new IntOption("width",
             'w', "Size of Window", 1000);
 
-    protected double TotalweightObserved = 0;
+    protected double totalWeightObserved = 0;
 
     protected Estimator weightObserved;
 
@@ -56,7 +55,7 @@ public class WindowRegressionPerformanceEvaluator extends AbstractOptionHandler
 
     protected int numClasses;
 
-    public class Estimator {
+    public static class Estimator {
 
         protected double[] window;
 
@@ -103,7 +102,7 @@ public class WindowRegressionPerformanceEvaluator extends AbstractOptionHandler
         this.weightObserved = new Estimator(this.widthOption.getValue());
         this.squareError = new Estimator(this.widthOption.getValue());
         this.averageError = new Estimator(this.widthOption.getValue());
-        this.TotalweightObserved = 0;
+        this.totalWeightObserved = 0;
     }
 
     @Override
@@ -111,10 +110,10 @@ public class WindowRegressionPerformanceEvaluator extends AbstractOptionHandler
         Instance inst = example.getData();
         double weight = inst.weight();
         if (weight > 0.0) {
-            if (TotalweightObserved == 0) {
+            if (totalWeightObserved == 0) {
                 reset(inst.dataset().numClasses());
             }
-            this.TotalweightObserved += weight;
+            this.totalWeightObserved += weight;
             this.weightObserved.add(weight);
 
             if (prediction.length > 0) {
