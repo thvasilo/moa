@@ -19,17 +19,24 @@ package moa.classifiers.trees;
  * #L%
  */
 
+import com.github.javacliparser.IntOption;
 import com.yahoo.labs.samoa.instances.Instance;
 import com.bigml.histogram.*;
 import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
 
 public class FIMTQR extends FIMTDD {
 
-  public FIMTQR() {
+  public IntOption numBins = new IntOption(
+      "numBins", 'b', "Number of bins to use at leaf histograms",
+      100, 1, Integer.MAX_VALUE);
+
+  public FIMTQR(int numBins) {
+    this.numBins.setValue(numBins);
   }
 
   // Thin interface to define common function for leaves
   // Idea stolen from Scala traits and here: https://stackoverflow.com/a/21824485/209882
+  // tvas: We could generalize this and allow any tree regressor do this type of learning, I think.
   public interface withHistogram {
     // Should we define the Histogram variable here? Is it used by SplitNodes?
     Histogram getPredictionHistogram(Instance instance);
@@ -44,9 +51,9 @@ public class FIMTQR extends FIMTDD {
      *
      * @param tree
      */
-    public QRLeafNode(FIMTDD tree) {
+    public QRLeafNode(FIMTQR tree) {
       super(tree);
-      labelHistogram = new Histogram(100);
+      labelHistogram = new Histogram(tree.numBins.getValue());
     }
 
     @Override
