@@ -36,14 +36,16 @@ public class IntervalRegressionPerformanceEvaluator extends AbstractOptionHandle
   private double totalWeightObserved = 0;
 
   public IntOption widthOption = new IntOption("width",
-      'w', "Size of Window", 1000);
+      'w', "Size of Window", 10000);
 
-  private Estimator errorRate;
+  private Estimator windowErrorSum;
+  private Estimator windowIntervalSizeSum;
   private Estimator windowWeightObserved;
 
   @Override
   public void reset() {
-    errorRate = new Estimator(widthOption.getValue());
+    windowErrorSum = new Estimator(widthOption.getValue());
+    windowIntervalSizeSum = new Estimator(widthOption.getValue());
     windowWeightObserved = new Estimator(widthOption.getValue());
   }
 
@@ -71,7 +73,8 @@ public class IntervalRegressionPerformanceEvaluator extends AbstractOptionHandle
     // Check if the true value is within the given interval
     boolean withinInterval = (trueValue >= prediction[0]) && (trueValue <= prediction[1]);
     // Add one to the error rate only if it's not
-    errorRate.add(withinInterval ? 0 : 1);
+    windowErrorSum.add(withinInterval ? 0 : 1);
+    windowIntervalSizeSum.add(prediction[1] - prediction[0]);
   }
 
   @Override
@@ -80,11 +83,17 @@ public class IntervalRegressionPerformanceEvaluator extends AbstractOptionHandle
         new Measurement("classified instances",
             totalWeightObserved),
         new Measurement("mean error rate",
-            meanErrorRate())};
+            meanErrorRate()),
+        new Measurement("mean interval size",
+            meanIntervalSize())};
   }
 
   private double meanErrorRate() {
-    return errorRate.total()/ windowWeightObserved.total();
+    return windowErrorSum.total() / windowWeightObserved.total();
+  }
+
+  private double meanIntervalSize() {
+    return windowIntervalSizeSum.total() / windowWeightObserved.total();
   }
 
   @Override

@@ -57,11 +57,12 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
 
   @Override
   public double[] getVotesForInstance(Instance inst) {
+    // TODO: Will prolly need an option to return a single/mean value as well
     // Gather and merge all histograms
     Histogram prevHist = null;
     for (HistogramLearner member : ensemble) {
       if (!member.learner.trainingHasStarted()) {
-        return new double[] {0};
+        return new double[] {0, 0};
       }
       if (prevHist == null) {
         prevHist = member.getPredictionHistogram(inst);
@@ -69,7 +70,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
       }
       Histogram curHist = member.getPredictionHistogram(inst);
       try {
-        prevHist.merge(curHist); // Modification should happen in place, check!
+        prevHist.merge(curHist); // tvas: Modification should happen in place, check!
       } catch (MixedInsertException e) {
         e.printStackTrace();
       }
@@ -80,7 +81,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
     if (quantilePredictions.isEmpty()) { // TODO: Why are predictions some times empty? From code seems like empty histogram, does this only happens when no data present?
       return new double[]{0, 0};
     }
-    double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about use a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
+    double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about using a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
     double lowerPred = (double) quantilePredictions.get(quantileLower);
     return new double[]{lowerPred, upperPred};
   }
