@@ -23,6 +23,7 @@ import com.bigml.histogram.Histogram;
 import com.bigml.histogram.MixedInsertException;
 import com.bigml.histogram.NumericTarget;
 import com.github.javacliparser.IntOption;
+import com.github.javacliparser.MultiChoiceOption;
 import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.AbstractClassifier;
 import moa.classifiers.Regressor;
@@ -43,22 +44,43 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   private double quantileLower;
   private HistogramLearner[] ensemble;
   private int ensembleSize;
+  private int subspaceSize;
+
+  private static final int FEATURES_M = 0;
+  private static final int FEATURES_SQRT = 1;
+  private static final int FEATURES_SQRT_INV = 2;
+  private static final int FEATURES_PERCENT = 3;
+
 
   public IntOption numTrees = new IntOption("numTrees", 't', "Number of trees in the ensemble",
       5, 1, Integer.MAX_VALUE);
 
   // This could be a float, but I feel this is enough precision
-  public IntOption confidenceLevel = new IntOption("confidenceLevel", 'a', "The confidence level in percentage points (i.e. 95 = 95% CI",
+  public IntOption confidenceLevel = new IntOption("confidenceLevel", 'a',
+      "The confidence level in integer percentage points (e.g. 95 = 95% prediction interval)",
       90, 1, 100);
 
   public IntOption numBins = new IntOption(
       "numBins", 'b', "Number of bins to use at leaf histograms",
       100, 1, Integer.MAX_VALUE);
 
+  public MultiChoiceOption mFeaturesModeOption = new MultiChoiceOption("mFeaturesMode", 'o',
+      "Defines how m, defined by mFeaturesPerTreeSize, is interpreted. M represents the total number of features.",
+      new String[]{"Specified m (integer value)", "sqrt(M)+1", "M-(sqrt(M)+1)",
+          "Percentage (M * (m / 100))"},
+      new String[]{"SpecifiedM", "SqrtM1", "MSqrtM1", "Percentage"}, 1);
+
+  public IntOption mFeaturesPerTreeSizeOption = new IntOption("mFeaturesPerTreeSize", 'm',
+      "Number of features allowed considered for each split. Negative values corresponds to M - m", 2, Integer.MIN_VALUE, Integer.MAX_VALUE);
+
+
   @Override
   public double[] getVotesForInstance(Instance inst) {
     // TODO: Will prolly need an option to return a single/mean value as well
     // Gather and merge all histograms
+    if(this.ensemble == null)
+      initEnsemble(inst);
+
     Histogram prevHist = null;
     for (HistogramLearner member : ensemble) {
       if (!member.learner.trainingHasStarted()) {
@@ -93,16 +115,13 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
     quantileLower = 0.0 + halfConfidence;
     quantileUpper = 1.0 - halfConfidence;
     ensembleSize = numTrees.getValue();
-    ensemble = new HistogramLearner[ensembleSize];
-    for (int i = 0; i < ensembleSize; i++) {
-      ensemble[i] = new HistogramLearner();
-      ensemble[i].learner.prepareForUse(); // Enforce config object creation. Should be better ways to do this
-      ensemble[i].learner.resetLearning();
-    }
   }
 
   @Override
   public void trainOnInstanceImpl(Instance instance) {
+
+    if(this.ensemble == null)
+      initEnsemble(instance);
 
     for (HistogramLearner member : ensemble) {
       // Predict and evaluate here? ARF does this, why?
@@ -114,6 +133,61 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
         member.learner.trainOnInstance(instance);
       }
     }
+  }
+
+  // Mostly copied over from AdaptiveRandomForest
+  protected void initEnsemble(Instance instance) {
+    // Init the ensemble.
+    int ensembleSize = numTrees.getValue();
+    ensemble = new HistogramLearner[ensembleSize];
+
+    subspaceSize = mFeaturesPerTreeSizeOption.getValue();
+
+    // The size of m depends on:
+    // 1) mFeaturesPerTreeSizeOption
+    // 2) mFeaturesModeOption
+    int numFeatures = instance.numAttributes() - 1; // Ignore class label ( -1 )
+
+    switch(mFeaturesModeOption.getChosenIndex()) {
+      case FEATURES_SQRT:
+        subspaceSize = (int) Math.round(Math.sqrt(numFeatures)) + 1;
+        break;
+      case FEATURES_SQRT_INV:
+        subspaceSize = numFeatures - (int) Math.round(Math.sqrt(numFeatures) + 1);
+        break;
+      case FEATURES_PERCENT:
+        // If subspaceSize is negative, then first find out the actual percent, i.e., 100% - m.
+        double percent = subspaceSize < 0 ? (100 + subspaceSize)/100.0 : subspaceSize / 100.0;
+        subspaceSize = (int) Math.round(numFeatures * percent);
+        break;
+    }
+    // Notice that if the selected mFeaturesModeOption was
+    //  AdaptiveRandomForest.FEATURES_M then nothing is performed in the
+    //  previous switch-case, still it is necessary to check (and adjusted)
+    //  for when a negative value was used.
+
+    // m is negative, use size(features) + -m
+    if(subspaceSize < 0)
+      subspaceSize = numFeatures + subspaceSize;
+    // Other sanity checks to avoid runtime errors.
+    //  m <= 0 (m can be negative if subspace was negative and
+    //  abs(m) > n), then use m = 1
+    if(subspaceSize <= 0)
+      subspaceSize = 1;
+    // m > n, then it should use n
+    if(subspaceSize > numFeatures)
+      subspaceSize = numFeatures;
+
+    HistogramLearner treeLearner = new HistogramLearner();
+    treeLearner.learner.resetLearning();
+
+    for (int i = 0; i < ensembleSize; i++) {
+      ensemble[i] = new HistogramLearner();
+      ensemble[i].learner.prepareForUse(); // Enforce config object creation. Should be better ways to do this
+      ensemble[i].learner.resetLearning();
+      ensemble[i].learner.subspaceSizeOption.setValue(subspaceSize);
+    }
+
   }
 
   @Override
