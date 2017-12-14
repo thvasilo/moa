@@ -229,51 +229,58 @@ public class AdaptiveRandomForest extends AbstractClassifier implements MultiCla
         return null;
     }
 
-    protected void initEnsemble(Instance instance) {
-        // Init the ensemble.
-        int ensembleSize = this.ensembleSizeOption.getValue();
-        this.ensemble = new ARFBaseLearner[ensembleSize];
-        
-        // TODO: this should be an option with default = BasicClassificationPerformanceEvaluator
-//        BasicClassificationPerformanceEvaluator classificationEvaluator = (BasicClassificationPerformanceEvaluator) getPreparedClassOption(this.evaluatorOption);
-        BasicClassificationPerformanceEvaluator classificationEvaluator = new BasicClassificationPerformanceEvaluator();
-        
-        this.subspaceSize = this.mFeaturesPerTreeSizeOption.getValue();
-  
+    public static int calculateSubspaceSize(int mFeatures, int featureModeOption, Instance instance) {
+        int subspaceSize = mFeatures;
+
         // The size of m depends on:
         // 1) mFeaturesPerTreeSizeOption
         // 2) mFeaturesModeOption
         int n = instance.numAttributes()-1; // Ignore class label ( -1 )
-        
-        switch(this.mFeaturesModeOption.getChosenIndex()) {
+
+        switch(featureModeOption) {
             case AdaptiveRandomForest.FEATURES_SQRT:
-                this.subspaceSize = (int) Math.round(Math.sqrt(n)) + 1;
+                subspaceSize = (int) Math.round(Math.sqrt(n)) + 1;
                 break;
             case AdaptiveRandomForest.FEATURES_SQRT_INV:
-                this.subspaceSize = n - (int) Math.round(Math.sqrt(n) + 1);
+                subspaceSize = n - (int) Math.round(Math.sqrt(n) + 1);
                 break;
             case AdaptiveRandomForest.FEATURES_PERCENT:
                 // If subspaceSize is negative, then first find out the actual percent, i.e., 100% - m.
-                double percent = this.subspaceSize < 0 ? (100 + this.subspaceSize)/100.0 : this.subspaceSize / 100.0;
-                this.subspaceSize = (int) Math.round(n * percent);
+                double percent = subspaceSize < 0 ? (100 + subspaceSize)/100.0 : subspaceSize / 100.0;
+                subspaceSize = (int) Math.round(n * percent);
                 break;
         }
-        // Notice that if the selected mFeaturesModeOption was 
+        // Notice that if the selected mFeaturesModeOption was
         //  AdaptiveRandomForest.FEATURES_M then nothing is performed in the
-        //  previous switch-case, still it is necessary to check (and adjusted) 
-        //  for when a negative value was used. 
-        
+        //  previous switch-case, still it is necessary to check (and adjusted)
+        //  for when a negative value was used.
+
         // m is negative, use size(features) + -m
-        if(this.subspaceSize < 0)
-            this.subspaceSize = n + this.subspaceSize;
-        // Other sanity checks to avoid runtime errors. 
-        //  m <= 0 (m can be negative if this.subspace was negative and 
+        if(subspaceSize < 0)
+           subspaceSize = n + subspaceSize;
+        // Other sanity checks to avoid runtime errors.
+        //  m <= 0 (m can be negative if this.subspace was negative and
         //  abs(m) > n), then use m = 1
-        if(this.subspaceSize <= 0)
-            this.subspaceSize = 1;
+        if(subspaceSize <= 0)
+            subspaceSize = 1;
         // m > n, then it should use n
-        if(this.subspaceSize > n)
-            this.subspaceSize = n;
+        if(subspaceSize > n)
+            subspaceSize = n;
+
+        return subspaceSize;
+    }
+
+    protected void initEnsemble(Instance instance) {
+        // Init the ensemble.
+        int ensembleSize = this.ensembleSizeOption.getValue();
+        this.ensemble = new ARFBaseLearner[ensembleSize];
+
+        // TODO: this should be an option with default = BasicClassificationPerformanceEvaluator
+//        BasicClassificationPerformanceEvaluator classificationEvaluator = (BasicClassificationPerformanceEvaluator) getPreparedClassOption(this.evaluatorOption);
+        BasicClassificationPerformanceEvaluator classificationEvaluator = new BasicClassificationPerformanceEvaluator();
+
+        this.subspaceSize = calculateSubspaceSize(
+            mFeaturesPerTreeSizeOption.getValue(), mFeaturesModeOption.getChosenIndex(), instance);
         
         ARFHoeffdingTree treeLearner = (ARFHoeffdingTree) getPreparedClassOption(this.treeLearnerOption);
         treeLearner.resetLearning();
