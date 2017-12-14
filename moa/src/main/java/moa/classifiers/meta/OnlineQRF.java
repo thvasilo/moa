@@ -34,6 +34,8 @@ import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.util.HashMap;
 
+import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
+
 /**
  * An ensemble of FIMTQR trees that are trained in the bagging manner as described in the ARF paper
  * Will need to pull out histograms from trees, in order to combine and then provide quantile prediction.
@@ -45,11 +47,6 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   private HistogramLearner[] ensemble;
   private int ensembleSize;
   private int subspaceSize;
-
-  private static final int FEATURES_M = 0;
-  private static final int FEATURES_SQRT = 1;
-  private static final int FEATURES_SQRT_INV = 2;
-  private static final int FEATURES_PERCENT = 3;
 
 
   public IntOption numTrees = new IntOption("numTrees", 't', "Number of trees in the ensemble",
@@ -141,42 +138,8 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
     int ensembleSize = numTrees.getValue();
     ensemble = new HistogramLearner[ensembleSize];
 
-    subspaceSize = mFeaturesPerTreeSizeOption.getValue();
-
-    // The size of m depends on:
-    // 1) mFeaturesPerTreeSizeOption
-    // 2) mFeaturesModeOption
-    int numFeatures = instance.numAttributes() - 1; // Ignore class label ( -1 )
-
-    switch(mFeaturesModeOption.getChosenIndex()) {
-      case FEATURES_SQRT:
-        subspaceSize = (int) Math.round(Math.sqrt(numFeatures)) + 1;
-        break;
-      case FEATURES_SQRT_INV:
-        subspaceSize = numFeatures - (int) Math.round(Math.sqrt(numFeatures) + 1);
-        break;
-      case FEATURES_PERCENT:
-        // If subspaceSize is negative, then first find out the actual percent, i.e., 100% - m.
-        double percent = subspaceSize < 0 ? (100 + subspaceSize)/100.0 : subspaceSize / 100.0;
-        subspaceSize = (int) Math.round(numFeatures * percent);
-        break;
-    }
-    // Notice that if the selected mFeaturesModeOption was
-    //  AdaptiveRandomForest.FEATURES_M then nothing is performed in the
-    //  previous switch-case, still it is necessary to check (and adjusted)
-    //  for when a negative value was used.
-
-    // m is negative, use size(features) + -m
-    if(subspaceSize < 0)
-      subspaceSize = numFeatures + subspaceSize;
-    // Other sanity checks to avoid runtime errors.
-    //  m <= 0 (m can be negative if subspace was negative and
-    //  abs(m) > n), then use m = 1
-    if(subspaceSize <= 0)
-      subspaceSize = 1;
-    // m > n, then it should use n
-    if(subspaceSize > numFeatures)
-      subspaceSize = numFeatures;
+    subspaceSize = calculateSubspaceSize(
+        mFeaturesPerTreeSizeOption.getValue(), mFeaturesModeOption.getChosenIndex(), instance);
 
     HistogramLearner treeLearner = new HistogramLearner();
     treeLearner.learner.resetLearning();
