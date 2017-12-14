@@ -42,6 +42,11 @@ public class FIMTQR extends FIMTDD {
     this.numBins.setValue(numBins);
   }
 
+  public FIMTQR(int numBins, int subspaceSize) {
+    this.numBins.setValue(numBins);
+    this.subspaceSizeOption.setValue(subspaceSize);
+  }
+
   // Thin interface to define common function for leaves
   // Idea stolen from Scala traits and here: https://stackoverflow.com/a/21824485/209882
   // tvas: We could generalize this and allow any tree regressor do this type of learning, I think.

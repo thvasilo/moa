@@ -36,50 +36,33 @@ import java.util.Arrays;
 
 public class ConformalRegressor extends AbstractClassifier implements Regressor{
   public ClassOption baseLearnerOption = new ClassOption("baseLearner", 'l',
-      "Classifier to train.", Classifier.class, "trees.FIMTDD");
+      "Regressor to train.", Classifier.class, "trees.FIMTDD");
 
   public StringOption calibrationDataset = new StringOption("calibrationData", 'c',
       "Filepath to the arff file to be used as a calibration dataset", "");
 
-  public FloatOption confidence = new FloatOption("confidence", 'a',
-      "Prediction confidence level. Set to 0.9 for a 90% prediction interval.", 0.9);
+  public FloatOption confidenceOption = new FloatOption("confidenceOption", 'a',
+      "Prediction confidenceOption level. Set to 0.9 for a 90% prediction interval.", 0.9);
 
-  public IntOption maxCalibrationInstances = new IntOption("maxCalibrationInstances", 'm',
-      "Maximum number of instances to use for calibration", 1000, 10, Integer.MAX_VALUE);
+  public IntOption maxCalibrationInstancesOption = new IntOption("maxCalibrationInstances", 'i',
+      "Maximum number of instances to use for calibration", 100, 10, Integer.MAX_VALUE);
 
   private Classifier model;
 
   private ArrayList<Instance> calibrationSet;
 
-  private double[] calibrationScores;
+  double[] calibrationScores;
 
   private void readCalibrationSet() {
     ArffFileStream stream = new ArffFileStream(calibrationDataset.getValue(), -1);
     int i = 0;
-    while (stream.hasMoreInstances() && i < maxCalibrationInstances.getValue()) {
+    while (stream.hasMoreInstances() && i < maxCalibrationInstancesOption.getValue()) {
       calibrationSet.add(stream.nextInstance().instance);
       i++;
     }
   }
 
-  private double[] reverseArray(double[] validData) {
-    for(int i = 0; i < validData.length / 2; i++)
-    {
-      double temp = validData[i];
-      validData[i] = validData[validData.length - i - 1];
-      validData[validData.length - i - 1] = temp;
-    }
-
-    return validData;
-  }
-
-  private void updateCalibrationSet() {
-    // tvas: To be used with OoB predictors
-  }
-
-  // TODO: Take calibration set input
-
-  private double[] errorFunction(double[] predictions, double[] trueValues) {
+  double[] errorFunction(double[] predictions, double[] trueValues) {
     // Implementing the absolute error function for now, this could be generalized
     double[] scores = new double[trueValues.length];
     // TODO: Should be done in jBLAS or something
@@ -92,21 +75,33 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
 
   /**
    * Incerse of non-conformity function, i.e. calculates prediction interval (PI).
-   * @param significance Interval confidence. Example: If we want 90% PIs this should be 0.1
+   * @param significance Interval confidenceOption. Example: If we want 90% PIs this should be 0.1
    * @return The value to add/subtract on each side of the prediction to get the PI
    */
-  private double inverseErrorFunction(double significance) {
+  protected double inverseErrorFunction(double significance) {
     // tvas: Maybe this should be a class parameter to avoid re-calculation?
     // tvas: We assume the calibration scores are up-to-date and sorted
-//    double[] calibrationScores = reverseArray(this.calibrationScores); // TODO: Not necessary if I just pass confidence as significance?
+//    double[] calibrationScores = reverseArray(this.calibrationScores); // TODO: Not necessary if I just pass confidenceOption as significance?
+    assert isSorted(calibrationScores); // TODO: Debug purposes, remove for testing
     int border = (int) Math.floor(significance * (calibrationScores.length + 1)) - 1;
     border = Math.min(Math.max(border, 0), calibrationScores.length - 1);
     return calibrationScores[border];
   }
 
-  private void updateCalibrationScores() {
+
+  public static boolean isSorted(double[] data){
+    for(int i = 1; i < data.length; i++){
+      if(data[i-1] > data[i]){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  protected void updateCalibrationScores() {
     double[] predictions = new double[calibrationSet.size()];
     double[] trueValues = new double[calibrationSet.size()];
+    // tvas: mah performance!
     for (int i = 0; i < predictions.length; i++) {
       Instance calInstance = calibrationSet.get(i);
       trueValues[i] = calInstance.classValue();
@@ -115,7 +110,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
       predictions[i] = prediction[0];
     }
     double[] calScores = errorFunction(predictions, trueValues);
-    Arrays.sort(calScores); // tvas: mah performance!
+    Arrays.sort(calScores);
     calibrationScores = calScores;
   }
 
@@ -127,8 +122,8 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     double[] modelPredictionArray = model.getVotesForInstance(inst);
     assert modelPredictionArray.length == 1;
     double modelPrediction = modelPredictionArray[0];
-//    double interval = inverseErrorFunction(1.0 - confidence.getValue());
-    double interval = inverseErrorFunction(confidence.getValue());
+//    double interval = inverseErrorFunction(1.0 - confidenceOption.getValue());
+    double interval = inverseErrorFunction(confidenceOption.getValue());
     // TODO: Normalized prediction intervals
     return new double[]{modelPrediction - interval, modelPrediction + interval};
   }
@@ -145,7 +140,6 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
   @Override
   public void trainOnInstanceImpl(Instance inst) {
     model.trainOnInstance(inst);
-    updateCalibrationSet();
     updateCalibrationScores(); // tvas: This could happen async as well, just needs to complete before next prediction
   }
 
@@ -161,7 +155,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
 
   @Override
   public boolean isRandomizable() {
-    return false;
+    return true;
   }
 
 
