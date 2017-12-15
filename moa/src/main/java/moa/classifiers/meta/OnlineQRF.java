@@ -21,15 +21,17 @@ package moa.classifiers.meta;
 
 import com.bigml.histogram.Histogram;
 import com.bigml.histogram.MixedInsertException;
-import com.bigml.histogram.NumericTarget;
+import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
 import com.github.javacliparser.MultiChoiceOption;
 import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.AbstractClassifier;
+import moa.classifiers.Classifier;
 import moa.classifiers.Regressor;
 import moa.classifiers.trees.FIMTQR;
 import moa.core.Measurement;
 import moa.core.MiscUtils;
+import moa.options.ClassOption;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.util.HashMap;
@@ -45,17 +47,19 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   private double quantileUpper;
   private double quantileLower;
   private HistogramLearner[] ensemble;
-  private int ensembleSize;
   private int subspaceSize;
 
 
-  public IntOption numTrees = new IntOption("numTrees", 't', "Number of trees in the ensemble",
+  public ClassOption treeLearnerOption = new ClassOption("treeLearner", 'l',
+      "Random Forest Tree.", Classifier.class,"trees.FIMTQR -e");
+
+  public IntOption ensembleSize = new IntOption("ensembleSize", 's', "Number of trees in the ensemble",
       5, 1, Integer.MAX_VALUE);
 
   // This could be a float, but I feel this is enough precision
-  public IntOption confidenceLevel = new IntOption("confidenceLevel", 'a',
+  public FloatOption confidenceLevel = new FloatOption("confidenceLevel", 'a',
       "The confidence level in integer percentage points (e.g. 95 = 95% prediction interval)",
-      90, 1, 100);
+      0.9, 0.0, 1.0);
 
   public IntOption numBins = new IntOption(
       "numBins", 'b', "Number of bins to use at leaf histograms",
@@ -108,10 +112,9 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   @Override
   public void resetLearningImpl() {
     // Translate confidence to upper and lower quantiles
-    double halfConfidence = (100 - confidenceLevel.getValue()) / 200.0; // We divide by two for each region (lower,upper) and by 100 to get a [0,1] double
+    double halfConfidence = (1.0 - confidenceLevel.getValue()) / 2.0; // We divide by two for each region (lower,upper)
     quantileLower = 0.0 + halfConfidence;
     quantileUpper = 1.0 - halfConfidence;
-    ensembleSize = numTrees.getValue();
   }
 
   @Override
@@ -135,20 +138,18 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   // Mostly copied over from AdaptiveRandomForest
   protected void initEnsemble(Instance instance) {
     // Init the ensemble.
-    int ensembleSize = numTrees.getValue();
+    int ensembleSize = this.ensembleSize.getValue();
     ensemble = new HistogramLearner[ensembleSize];
 
     subspaceSize = calculateSubspaceSize(
         mFeaturesPerTreeSizeOption.getValue(), mFeaturesModeOption.getChosenIndex(), instance);
 
-    HistogramLearner treeLearner = new HistogramLearner();
-    treeLearner.learner.resetLearning();
-
+    // TODO: Endep up breaking encapsulation. If we want the underlying tree to independent we'll need to do a bit
+    // more work
     for (int i = 0; i < ensembleSize; i++) {
-      ensemble[i] = new HistogramLearner();
+      ensemble[i] = new HistogramLearner(numBins.getValue(), subspaceSize);
       ensemble[i].learner.prepareForUse(); // Enforce config object creation. Should be better ways to do this
       ensemble[i].learner.resetLearning();
-      ensemble[i].learner.subspaceSizeOption.setValue(subspaceSize);
     }
 
   }
@@ -171,8 +172,8 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   private class HistogramLearner {
     public FIMTQR learner;
 
-    public HistogramLearner() {
-      this.learner = new FIMTQR(numBins.getValue());
+    public HistogramLearner(int numBins, int subspaceSize) {
+      learner = new FIMTQR(numBins, subspaceSize);
     }
 
     public Histogram getPredictionHistogram(Instance instance) {

@@ -38,6 +38,10 @@ public class FIMTQR extends FIMTDD {
       "Number of features per subset for each node split. Negative values = #features - k",
       2, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
+  public FIMTQR() {
+
+  }
+
   public FIMTQR(int numBins) {
     this.numBins.setValue(numBins);
   }
