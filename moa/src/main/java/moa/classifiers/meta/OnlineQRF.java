@@ -27,14 +27,18 @@ import com.github.javacliparser.MultiChoiceOption;
 import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.AbstractClassifier;
 import moa.classifiers.Classifier;
+import moa.classifiers.Parallel;
 import moa.classifiers.Regressor;
 import moa.classifiers.trees.FIMTQR;
 import moa.core.Measurement;
 import moa.core.MiscUtils;
 import moa.options.ClassOption;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.concurrent.*;
+import java.util.function.BinaryOperator;
 
 import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
 
@@ -43,12 +47,16 @@ import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
  * Will need to pull out histograms from trees, in order to combine and then provide quantile prediction.
  * Usage: EvaluatePrequentialRegression -e (IntervalRegressionPerformanceEvaluator -w 10000) -l (meta.OnlineQRF -t 5 -b 100 -a 90) -s (ArffFileStream -f somefile.arff)  -f 10000
  */
-public class OnlineQRF  extends AbstractClassifier implements Regressor {
+public class OnlineQRF  extends AbstractClassifier implements Regressor, Parallel {
   private double quantileUpper;
   private double quantileLower;
   private HistogramLearner[] ensemble;
   private int subspaceSize;
+  long instancesSeen;
 
+  private ExecutorService executor;
+  private CompletionService<Histogram> ecs;
+  private ForkJoinPool forkJoinPool; // Needed because the streams interface will take all processors otherwise
 
   public ClassOption treeLearnerOption = new ClassOption("treeLearner", 'l',
       "Random Forest Tree.", Classifier.class,"trees.FIMTQR -e");
@@ -65,6 +73,10 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
       "numBins", 'b', "Number of bins to use at leaf histograms",
       100, 1, Integer.MAX_VALUE);
 
+  public FloatOption lambdaOption = new FloatOption("lambda", 'd',
+      "The lambda parameter for bagging.", 6.0, 1.0, Float.MAX_VALUE);
+
+
   public MultiChoiceOption mFeaturesModeOption = new MultiChoiceOption("mFeaturesMode", 'o',
       "Defines how m, defined by mFeaturesPerTreeSize, is interpreted. M represents the total number of features.",
       new String[]{"Specified m (integer value)", "sqrt(M)+1", "M-(sqrt(M)+1)",
@@ -74,18 +86,41 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
   public IntOption mFeaturesPerTreeSizeOption = new IntOption("mFeaturesPerTreeSize", 'm',
       "Number of features allowed considered for each split. Negative values corresponds to M - m", 2, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
+  public IntOption numberOfJobsOption = new IntOption("numberOfJobs", 'j',
+      "Total number of concurrent jobs used for processing (-1 = as much as possible, 0 = do not use multithreading)", 1, -1, Integer.MAX_VALUE);
+
 
   @Override
   public double[] getVotesForInstance(Instance inst) {
     // TODO: Will prolly need an option to return a single/mean value as well
-    // Gather and merge all histograms
     if(this.ensemble == null)
       initEnsemble(inst);
 
+    // Gather and merge all histograms
+    Histogram combinedHist;
+    if (executor != null) {
+      combinedHist = multiThreadedPredict(inst);
+    } else {
+      combinedHist = singleThreadedPredict(inst);
+    }
+
+    // Get quantile from merged histograms
+    assert combinedHist != null;
+    HashMap quantilePredictions = combinedHist.percentiles(quantileLower, quantileUpper);
+    if (quantilePredictions.isEmpty()) {
+      return new double[]{0, 0};
+    }
+    double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about using a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
+    double lowerPred = (double) quantilePredictions.get(quantileLower);
+    return new double[]{lowerPred, upperPred};
+  }
+
+  private Histogram singleThreadedPredict(Instance inst) {
     Histogram prevHist = null;
+    // We iterate through all learners, and merge histograms as we go
     for (HistogramLearner member : ensemble) {
       if (!member.learner.trainingHasStarted()) {
-        return new double[] {0, 0};
+        return new Histogram(numBins.getValue());
       }
       if (prevHist == null) {
         prevHist = member.getPredictionHistogram(inst);
@@ -93,20 +128,66 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
       }
       Histogram curHist = member.getPredictionHistogram(inst);
       try {
+        //This could be done async as well
         prevHist.merge(curHist); // tvas: Modification should happen in place, check!
       } catch (MixedInsertException e) {
         e.printStackTrace();
       }
     }
-    // Get quantile from merged histograms
-    assert prevHist != null;
-    HashMap quantilePredictions = prevHist.percentiles(quantileLower, quantileUpper);
-    if (quantilePredictions.isEmpty()) { // TODO: Why are predictions some times empty? From code seems like empty histogram, does this only happens when no data present?
-      return new double[]{0, 0};
+
+    return prevHist;
+  }
+
+  private Histogram multiThreadedPredict(Instance inst) {
+    ArrayList<HistogramPredictionRunnable> predictionRunnables = new ArrayList<>();
+    Histogram combinedHist = new Histogram(numBins.getValue());
+
+    for (HistogramLearner member : ensemble) {
+      if (!member.learner.trainingHasStarted()) {
+        return combinedHist;
+      }
+      if (this.executor != null) {
+        predictionRunnables.add(new HistogramPredictionRunnable(member, inst));
+      }
     }
-    double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about using a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
-    double lowerPred = (double) quantilePredictions.get(quantileLower);
-    return new double[]{lowerPred, upperPred};
+
+    for (HistogramPredictionRunnable predictionRunnable : predictionRunnables) {
+      ecs.submit(predictionRunnable);
+    }
+    // This will do the predictions in parallel
+    ArrayList<Histogram> histograms = new ArrayList<>(predictionRunnables.size());
+    for (HistogramPredictionRunnable ignored : predictionRunnables) {
+      try {
+        final Future<Histogram> res = ecs.take();
+        Histogram hist = res.get();
+//        combinedHist.merge(hist);
+        histograms.add(hist);
+      } catch (InterruptedException | ExecutionException e) {
+        e.printStackTrace();
+      }
+    }
+
+    // This operator merges two histograms into a new one
+    BinaryOperator<Histogram> merger = (h1, h2) -> {
+      try {
+        // Need to create new object because merge is in-place
+        Histogram retHist = new Histogram(numBins.getValue());
+        retHist.merge(h1);
+        return retHist.merge(h2);
+      } catch (MixedInsertException e) {
+        e.printStackTrace();
+        return new Histogram(numBins.getValue());
+      }
+    };
+    // This will do the merging in parallel
+    try {
+      combinedHist = forkJoinPool.submit(() -> histograms.parallelStream()
+          .reduce(new Histogram(numBins.getValue()), merger)).get();
+    } catch (InterruptedException | ExecutionException e) {
+      e.printStackTrace();
+    }
+
+    return combinedHist;
   }
 
   @Override
@@ -115,24 +196,71 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
     double halfConfidence = (1.0 - confidenceLevel.getValue()) / 2.0; // We divide by two for each region (lower,upper)
     quantileLower = 0.0 + halfConfidence;
     quantileUpper = 1.0 - halfConfidence;
+
+    // Multi-threading
+    int numberOfJobs;
+    if(this.numberOfJobsOption.getValue() == -1)
+      numberOfJobs = Runtime.getRuntime().availableProcessors();
+    else
+      numberOfJobs = this.numberOfJobsOption.getValue();
+
+    if(numberOfJobs != 1) {
+      executor = Executors.newFixedThreadPool(numberOfJobs);
+      ecs = new ExecutorCompletionService<>(executor);
+      forkJoinPool = new ForkJoinPool(numberOfJobsOption.getValue());
+    }
   }
 
   @Override
   public void trainOnInstanceImpl(Instance instance) {
-
+    ++this.instancesSeen;
     if(this.ensemble == null)
       initEnsemble(instance);
 
+    Collection<TrainingRunnable> trainers = new ArrayList<>();
     for (HistogramLearner member : ensemble) {
       // Predict and evaluate here? ARF does this, why?
 //      double[] prediction = member.getVotesForInstance(instance);
-      int k = MiscUtils.poisson(6.0, this.classifierRandom);
+      int k = MiscUtils.poisson(lambdaOption.getValue(), this.classifierRandom);
       if (k > 0) {
         Instance weightedInstance = instance.copy();
         weightedInstance.setWeight(k);
-        member.learner.trainOnInstance(instance);
+        if(this.executor != null) {
+          TrainingRunnable trainer = new TrainingRunnable(member.learner,
+              instance);
+          trainers.add(trainer);
+        }
+        else {
+          member.learner.trainOnInstance(instance);
+        }
       }
     }
+    // Using invokeAll and Runnables.
+    // tvas: There are guarantees that the futures will complete before the function returns,
+    // because of the implementation of invokeAll (AbstractExecutorService). It's still sequential though.
+    if(this.executor != null) {
+      try {
+        this.executor.invokeAll(trainers);
+      } catch (InterruptedException ex) {
+        throw new RuntimeException("Could not call invokeAll() on training threads.");
+      }
+    }
+    // tvas: Using collection service. Seems like this is slower than invokeAll, no idea why, should test more
+//    if(this.executor != null) {
+//
+//      for (TrainingRunnable trainingRunnable : trainers) {
+//        ecs.submit(trainingRunnable);
+//      }
+//      // Ensure all tasks have completed before moving on
+//      for (TrainingRunnable ignored : trainers) {
+//        try {
+//          final Future<Integer> res = ecs.take();
+//          Integer j = res.get();
+//        } catch (InterruptedException | ExecutionException e) {
+//          e.printStackTrace();
+//        }
+//      }
+//    }
   }
 
   // Mostly copied over from AdaptiveRandomForest
@@ -144,7 +272,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
     subspaceSize = calculateSubspaceSize(
         mFeaturesPerTreeSizeOption.getValue(), mFeaturesModeOption.getChosenIndex(), instance);
 
-    // TODO: Endep up breaking encapsulation. If we want the underlying tree to independent we'll need to do a bit
+    // TODO: Ended up breaking encapsulation. If we want the underlying tree to independent we'll need to do a bit
     // more work
     for (int i = 0; i < ensembleSize; i++) {
       ensemble[i] = new HistogramLearner(numBins.getValue(), subspaceSize);
@@ -161,12 +289,20 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
 
   @Override
   public void getModelDescription(StringBuilder out, int indent) {
-    throw new NotImplementedException();
+
   }
 
   @Override
   public boolean isRandomizable() {
     return true;
+  }
+
+  @Override
+  public void shutdownExecutor() {
+    if (executor != null) {
+      executor.shutdown();
+      forkJoinPool.shutdown();
+    }
   }
 
   private class HistogramLearner {
@@ -180,4 +316,27 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor {
       return learner.getPredictionHistogram(instance);
     }
   }
+
+  class HistogramPredictionRunnable implements Runnable, Callable<Histogram> {
+    final private HistogramLearner learner;
+    final private Instance instance;
+    private Histogram histogram;
+
+    public HistogramPredictionRunnable(HistogramLearner learner, Instance instance) {
+      this.learner = learner;
+      this.instance = instance;
+    }
+
+    @Override
+    public void run() {
+      histogram = learner.getPredictionHistogram(this.instance);
+    }
+
+    @Override
+    public Histogram call() {
+      run();
+      return histogram;
+    }
+  }
+
 }

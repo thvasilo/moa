@@ -22,6 +22,7 @@ import com.yahoo.labs.samoa.instances.Instance;
 
 import moa.classifiers.AbstractClassifier;
 import moa.classifiers.MultiClassClassifier;
+import moa.classifiers.Parallel;
 import moa.core.DoubleVector;
 import moa.core.InstanceExample;
 import moa.core.Measurement;
@@ -80,7 +81,7 @@ import moa.classifiers.core.driftdetection.ChangeDetector;
  * @author Heitor Murilo Gomes (heitor_murilo_gomes at yahoo dot com dot br)
  * @version $Revision: 1 $
  */
-public class AdaptiveRandomForest extends AbstractClassifier implements MultiClassClassifier {
+public class AdaptiveRandomForest extends AbstractClassifier implements MultiClassClassifier, Parallel {
 
     @Override
     public String getPurposeString() {
@@ -299,7 +300,14 @@ public class AdaptiveRandomForest extends AbstractClassifier implements MultiCla
                 false);
         }
     }
-    
+
+    @Override
+    public void shutdownExecutor() {
+        if (executor != null) {
+            executor.shutdown();
+        }
+    }
+
     /**
      * Inner class that represents a single tree member of the forest. 
      * It contains some analysis information, such as the numberOfDriftsDetected, 

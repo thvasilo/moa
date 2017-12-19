@@ -20,6 +20,7 @@
 package moa.tasks;
 
 import moa.classifiers.Classifier;
+import moa.classifiers.Parallel;
 import moa.core.ObjectRepository;
 import moa.learners.Learner;
 import moa.options.ClassOption;
@@ -120,6 +121,9 @@ public class LearnModelRegression extends RegressionMainTask {
             }
         }
         learner.setModelContext(stream.getHeader());
+        if (learner instanceof Parallel) {
+            ((Parallel) learner).shutdownExecutor();
+        }
         return learner;
     }
 }

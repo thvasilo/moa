@@ -36,6 +36,7 @@ import moa.evaluation.LearningEvaluation;
 import moa.evaluation.LearningPerformanceEvaluator;
 import moa.learners.Learner;
 import moa.options.ClassOption;
+import moa.classifiers.Parallel;
 
 import com.github.javacliparser.FileOption;
 import com.github.javacliparser.FloatOption;
@@ -159,8 +160,9 @@ public class EvaluatePrequentialRegression extends RegressionMainTask {
         if (dumpFile != null) {
             try {
                 if (dumpFile.exists()) {
+                    // TODO: Handle existing file, have overwrite as option
                     immediateResultStream = new PrintStream(
-                            new FileOutputStream(dumpFile, true), true);
+                        new FileOutputStream(dumpFile, false), true);
                 } else {
                     immediateResultStream = new PrintStream(
                             new FileOutputStream(dumpFile), true);
@@ -271,6 +273,9 @@ public class EvaluatePrequentialRegression extends RegressionMainTask {
         }
         if (outputPredictionResultStream != null) {
             outputPredictionResultStream.close();
+        }
+        if (learner instanceof Parallel) {
+            ((Parallel) learner).shutdownExecutor();
         }
         return learningCurve;
     }
