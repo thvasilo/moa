@@ -227,11 +227,11 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
         weightedInstance.setWeight(k);
         if(this.executor != null) {
           TrainingRunnable trainer = new TrainingRunnable(member.learner,
-              instance);
+              weightedInstance);
           trainers.add(trainer);
         }
         else {
-          member.learner.trainOnInstance(instance);
+          member.learner.trainOnInstance(weightedInstance);
         }
       }
     }
