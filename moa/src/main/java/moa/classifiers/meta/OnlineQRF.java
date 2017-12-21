@@ -139,7 +139,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   }
 
   private Histogram multiThreadedPredict(Instance inst) {
-    ArrayList<HistogramPredictionRunnable> predictionRunnables = new ArrayList<>();
+    ArrayList<Future<Histogram>> histogramFutures = new ArrayList<>();
     Histogram combinedHist = new Histogram(numBins.getValue());
 
     for (HistogramLearner member : ensemble) {
@@ -147,19 +147,15 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
         return combinedHist;
       }
       if (this.executor != null) {
-        predictionRunnables.add(new HistogramPredictionRunnable(member, inst));
+        histogramFutures.add(ecs.submit(new HistogramPredictionRunnable(member, inst)));
       }
     }
 
-    for (HistogramPredictionRunnable predictionRunnable : predictionRunnables) {
-      ecs.submit(predictionRunnable);
-    }
     // This will do the predictions in parallel
-    ArrayList<Histogram> histograms = new ArrayList<>(predictionRunnables.size());
-    for (HistogramPredictionRunnable ignored : predictionRunnables) {
+    ArrayList<Histogram> histograms = new ArrayList<>(histogramFutures.size());
+    for (Future ignored : histogramFutures) {
       try {
-        final Future<Histogram> res = ecs.take();
-        Histogram hist = res.get();
+        Histogram hist = ecs.take().get();
 //        combinedHist.merge(hist);
         histograms.add(hist);
       } catch (InterruptedException | ExecutionException e) {

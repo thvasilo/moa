@@ -27,6 +27,7 @@ import java.util.concurrent.Callable;
 public interface Parallel {
   void shutdownExecutor();
 
+  // tvas: This could be a runnable, but we use a Callable for access to executor.invokeAll
   class TrainingRunnable implements Runnable, Callable<Integer> {
     final private Classifier learner;
     final private Instance instance;
@@ -48,7 +49,7 @@ public interface Parallel {
     }
   }
 
-  class PredictionRunnable implements Runnable, Callable<double[]> {
+  class PredictionRunnable implements Callable<double[]> {
     final private Classifier learner;
     final private Instance instance;
     private double[] votes;
@@ -59,13 +60,8 @@ public interface Parallel {
     }
 
     @Override
-    public void run() {
-      votes = learner.getVotesForInstance(this.instance);
-    }
-
-    @Override
     public double[] call() {
-      run();
+      votes = learner.getVotesForInstance(this.instance);
       return votes;
     }
   }

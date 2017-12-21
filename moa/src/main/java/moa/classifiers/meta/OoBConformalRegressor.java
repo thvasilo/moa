@@ -24,24 +24,26 @@ import com.github.javacliparser.IntOption;
 import com.github.javacliparser.MultiChoiceOption;
 import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.Classifier;
+import moa.classifiers.Parallel;
 import moa.classifiers.trees.FIMTQR;
 import moa.core.MiscUtils;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.*;
 
 import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
 
 // There ought to be an abstract class for CP that implements the common stuff (like the arraylist for scores)
-public class OoBConformalRegressor extends ConformalRegressor {
+public class OoBConformalRegressor extends ConformalRegressor implements Parallel {
 
   private Classifier[] ensemble;
   private int subspaceSize;
   private int maxCalibrationInstances = 100;
 
   private HashMap<Instance, HashMap<Integer, Double>> calibrationInstances;
+
+  private ExecutorService executor;
+  private CompletionService<double[]> ecs;
 
   public IntOption ensembleSizeOption = new IntOption("ensembleSize", 's',
       "The number of trees.", 10, 1, Integer.MAX_VALUE);
@@ -58,6 +60,9 @@ public class OoBConformalRegressor extends ConformalRegressor {
   public FloatOption lambdaOption = new FloatOption("lambda", 'd',
       "The lambda parameter for bagging.", 1.0, 1.0, Float.MAX_VALUE);
 
+  public IntOption numberOfJobsOption = new IntOption("numberOfJobs", 'j',
+      "Total number of concurrent jobs used for processing (-1 = as much as possible, 0 = do not use multithreading)", 1, -1, Integer.MAX_VALUE);
+
   @Override
   public void trainOnInstanceImpl(Instance inst) {
 
@@ -68,22 +73,59 @@ public class OoBConformalRegressor extends ConformalRegressor {
     // perhaps easier to iterate format. Guava matrix works as well here.
     if (this.ensemble == null)
       initEnsemble(inst);
-    boolean isOoB = false;
+    boolean atLeastOneOoB = false;
+    Collection<TrainingRunnable> inBag = new ArrayList<>();
+    Collection<OoBPredictionRunnable> outOfBag = new ArrayList<>();
     for (int i = 0; i < ensemble.length; i++) {
       int k = MiscUtils.poisson(this.lambdaOption.getValue(), this.classifierRandom);
       if (k > 0) {
-        ensemble[i].trainOnInstance(inst);
+        Instance weightedInstance = inst.copy();
+        weightedInstance.setWeight(k);
+        if(this.executor != null) {
+          TrainingRunnable trainer = new TrainingRunnable(ensemble[i],
+              weightedInstance);
+          inBag.add(trainer);
+        }
+        else {
+          ensemble[i].trainOnInstance(weightedInstance);
+        }
       } else {
         if (ensemble[i].trainingHasStarted()) {
-          isOoB = true;
-          double[] curPred =  ensemble[i].getVotesForInstance(inst);
-          assert curPred.length == 1;
-          oobPredictions.put(i, curPred[0]);
+          atLeastOneOoB = true;
+          if (this.executor != null) {
+            OoBPredictionRunnable predictor = new OoBPredictionRunnable(ensemble[i], inst, i);
+            outOfBag.add(predictor);
+          } else {
+            double[] curPred =  ensemble[i].getVotesForInstance(inst);
+            assert curPred.length == 1;
+            oobPredictions.put(i, curPred[0]);
+          }
+
         }
       }
     }
 
-    if (isOoB) {
+    List<Future<AbstractMap.Entry>> predictionFutures;
+    if(executor != null) {
+      try {
+        executor.invokeAll(inBag);
+        predictionFutures = executor.invokeAll(outOfBag);
+      } catch (InterruptedException ex) {
+        throw new RuntimeException("Could not call invokeAll() on training threads.");
+      }
+
+      // TODO: Collection service would be better here
+      for (Future<AbstractMap.Entry> future : predictionFutures) {
+        try {
+          AbstractMap.Entry indexPred = future.get();
+          oobPredictions.put((Integer) indexPred.getKey(), (Double) indexPred.getValue());
+        } catch (InterruptedException | ExecutionException e) {
+          e.printStackTrace();
+        }
+      }
+    }
+
+    if (atLeastOneOoB) {
       if (calibrationInstances.size() < maxCalibrationInstances) {
         calibrationInstances.put(inst, oobPredictions);
       } else { // this way we are removing a random (?) element from the map
@@ -127,9 +169,25 @@ public class OoBConformalRegressor extends ConformalRegressor {
     if(this.ensemble == null)
       initEnsemble(inst);
     MomentAggregate curAggegate = new MomentAggregate(0, 0, 0);
+    ArrayList<Future<double[]>> voteFutures = new ArrayList<>();
     for (Classifier member : ensemble) {
-      double[] curVotes = member.getVotesForInstance(inst);
-      curAggegate = updateMoments(curAggegate, curVotes[0]);
+      if (executor != null) {
+        voteFutures.add(ecs.submit(new PredictionRunnable(member, inst)));
+      } else {
+        double[] curVotes = member.getVotesForInstance(inst);
+        curAggegate = updateMoments(curAggegate, curVotes[0]);
+      }
+    }
+    if (executor != null) {
+      for (Future ignored : voteFutures) {
+        try {
+          double[] curVotes = ecs.take().get();
+          // TODO: Can probably have the moment update be done in a parallel reduce as well
+          curAggegate = updateMoments(curAggegate, curVotes[0]);
+        } catch (InterruptedException | ExecutionException e) {
+          e.printStackTrace();
+        }
+      }
     }
     curAggegate = finalizeMoments(curAggegate);
     if (calibrationInstances.size() < 10) {
@@ -218,6 +276,52 @@ public class OoBConformalRegressor extends ConformalRegressor {
       ensemble[i] = new FIMTQR(1, subspaceSize);
       ensemble[i].prepareForUse(); // Enforce config object creation. Should be better ways to do this
       ensemble[i].resetLearning();
+    }
+
+
+    // Multi-threading
+    int numberOfJobs;
+    if(this.numberOfJobsOption.getValue() == -1)
+      numberOfJobs = Runtime.getRuntime().availableProcessors();
+    else
+      numberOfJobs = this.numberOfJobsOption.getValue();
+
+    if(numberOfJobs != 1) {
+      executor = Executors.newFixedThreadPool(numberOfJobs);
+      ecs = new ExecutorCompletionService<>(executor);
+    }
+  }
+
+  @Override
+  public void shutdownExecutor() {
+    if (executor != null) {
+      executor.shutdown();
+    }
+  }
+
+  class OoBPredictionRunnable implements Runnable, Callable<Map.Entry> {
+    final private Classifier learner;
+    final private Instance instance;
+    private Double vote;
+    int learnerIndex;
+
+    public OoBPredictionRunnable(Classifier learner, Instance instance, int learnerIndex) {
+      this.learner = learner;
+      this.instance = instance;
+      this.learnerIndex = learnerIndex;
+    }
+
+    @Override
+    public void run() {
+      double[] votes = learner.getVotesForInstance(this.instance);
+      assert votes.length == 1;
+      vote = votes[0];
+    }
+
+    @Override
+    public Map.Entry call() {
+      run();
+      return new AbstractMap.SimpleEntry<>(learnerIndex, vote);
     }
 
   }
