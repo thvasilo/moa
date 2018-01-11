@@ -178,8 +178,9 @@ public class EvaluatePrequentialRegression extends RegressionMainTask {
         if (outputPredictionFile != null) {
             try {
                 if (outputPredictionFile.exists()) {
+                    // TODO: Handle existing file, have overwrite as option
                     outputPredictionResultStream = new PrintStream(
-                            new FileOutputStream(outputPredictionFile, true), true);
+                            new FileOutputStream(outputPredictionFile, false), true);
                 } else {
                     outputPredictionResultStream = new PrintStream(
                             new FileOutputStream(outputPredictionFile), true);
