@@ -31,22 +31,26 @@ import moa.core.MiscUtils;
 import java.util.*;
 import java.util.concurrent.*;
 
+import org.apache.commons.math3.distribution.NormalDistribution;
+
 import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
 
 // There ought to be an abstract class for CP that implements the common stuff (like the arraylist for scores)
 public class OoBConformalRegressor extends ConformalRegressor implements Parallel {
+  protected double quantileUpper;
+  protected double quantileLower;
 
-  private Classifier[] ensemble;
-  private int subspaceSize;
+  protected Classifier[] ensemble;
+  protected int subspaceSize;
   private int maxCalibrationInstances = 100;
 
   private HashMap<Instance, HashMap<Integer, Double>> calibrationInstances;
 
-  private ExecutorService executor;
-  private CompletionService<double[]> ecs;
+  protected ExecutorService executor;
+  protected CompletionService<double[]> ecs;
 
   public IntOption ensembleSizeOption = new IntOption("ensembleSize", 's',
-      "The number of trees.", 10, 1, Integer.MAX_VALUE);
+      "The number of trees in the ensemble.", 10, 1, Integer.MAX_VALUE);
 
   public MultiChoiceOption mFeaturesModeOption = new MultiChoiceOption("mFeaturesMode", 'o',
       "Defines how m, defined by mFeaturesPerTreeSize, is interpreted. M represents the total number of features.",
@@ -100,22 +104,21 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
             assert curPred.length == 1;
             oobPredictions.put(i, curPred[0]);
           }
-
         }
       }
     }
 
-    List<Future<AbstractMap.Entry>> predictionFutures;
+    List<Future<AbstractMap.Entry>> oobPredictionFutures;
     if(executor != null) {
       try {
         executor.invokeAll(inBag);
-        predictionFutures = executor.invokeAll(outOfBag);
+        oobPredictionFutures = executor.invokeAll(outOfBag);
       } catch (InterruptedException ex) {
         throw new RuntimeException("Could not call invokeAll() on training threads.");
       }
 
       // TODO: Collection service would be better here
-      for (Future<AbstractMap.Entry> future : predictionFutures) {
+      for (Future<AbstractMap.Entry> future : oobPredictionFutures) {
         try {
           AbstractMap.Entry indexPred = future.get();
           oobPredictions.put((Integer) indexPred.getKey(), (Double) indexPred.getValue());
@@ -125,6 +128,9 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
       }
     }
 
+    // TODO: Have a "burn-in" period for the algo, where we ensure the first x
+    // data points end up as OoB for at least one learner. That way we fill up
+    // the calibration set as soon as possible
     if (atLeastOneOoB) {
       if (calibrationInstances.size() < maxCalibrationInstances) {
         calibrationInstances.put(inst, oobPredictions);
@@ -166,6 +172,18 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
 
   @Override
   public double[] getVotesForInstance(Instance inst) {
+    MomentAggregate curAggegate = getMoments(inst);
+    if (calibrationInstances.size() < 10) {
+      // TODO: Predictive sd is a bad estimate, come up with something else
+      // tvas: Depending on the lambda setting, it could be a while until we get 10 cal instances, careful!
+      // One option: https://stats.stackexchange.com/a/255131/16052
+      return calculateGaussianInterval(curAggegate.mean, Math.sqrt(curAggegate.variance));
+    }
+    double interval = inverseErrorFunction(confidenceOption.getValue());
+    return new double[]{curAggegate.mean - interval, curAggegate.mean + interval};
+  }
+
+  protected MomentAggregate getMoments(Instance inst) {
     if(this.ensemble == null)
       initEnsemble(inst);
     MomentAggregate curAggegate = new MomentAggregate(0, 0, 0);
@@ -189,17 +207,19 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
         }
       }
     }
-    curAggegate = finalizeMoments(curAggegate);
-    if (calibrationInstances.size() < 10) {
-      // TODO: Predictive sd is a very bad estimate, come up with something else
-      // tvas: Depending on the lambda setting, it could be a while until we get 10 cal instances, careful!
-      // One option: https://stats.stackexchange.com/a/255131/16052
-      return new double[]{
-          curAggegate.mean - Math.sqrt(curAggegate.variance),
-          curAggegate.mean + Math.sqrt(curAggegate.variance)};
+    return finalizeMoments(curAggegate);
+  }
+
+
+  protected double[] calculateGaussianInterval(double mean, double std) {
+    if (std < 1e-6) {
+      std = 1e-8;
     }
-    double interval = inverseErrorFunction(confidenceOption.getValue());
-    return new double[]{curAggegate.mean - interval, curAggegate.mean + interval};
+    NormalDistribution norm = new NormalDistribution(mean, std);
+    double upperValue = norm.inverseCumulativeProbability(quantileUpper);
+    double lowerValue = norm.inverseCumulativeProbability(quantileLower);
+
+    return new double[]{lowerValue, upperValue};
   }
 
   /**
@@ -258,13 +278,20 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
 
   @Override
   public void resetLearningImpl() {
+    // Translate confidence to upper and lower quantiles
+    double halfConfidence = (1.0 - confidenceOption.getValue()) / 2.0; // We divide by two for each region (lower,upper)
+    quantileLower = 0.0 + halfConfidence;
+    quantileUpper = 1.0 - halfConfidence;
     ensemble = null;
     calibrationInstances = new HashMap<>();
     maxCalibrationInstances = maxCalibrationInstancesOption.getValue();
     calibrationScores = new double[maxCalibrationInstances];
+    if (!calibrationDataset.getValue().equals("")) {
+      System.out.println("WARNING: OoBCOnformalRegression should not take a calibration set! (-c option)");
+    }
   }
 
-  private void initEnsemble(Instance instance) {
+  protected void initEnsemble(Instance instance) {
     // Init the ensemble.
     int ensembleSize = ensembleSizeOption.getValue();
     ensemble = new FIMTQR[ensembleSize];
