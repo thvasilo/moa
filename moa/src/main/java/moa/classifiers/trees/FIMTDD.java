@@ -709,7 +709,9 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 		}
 
 		double prediction = treeRoot.getPrediction(inst);
-
+		if (Double.isNaN(prediction)) {
+			return new double[]{0};
+		}
 		return new double[] {prediction};
 	}
 

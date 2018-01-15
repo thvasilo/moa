@@ -41,6 +41,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
   protected double quantileLower;
 
   protected Classifier[] ensemble;
+  private boolean[] wasUpdatedLast;
   protected int subspaceSize;
   private int maxCalibrationInstances = 100;
 
@@ -69,7 +70,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
 
   @Override
   public void trainOnInstanceImpl(Instance inst) {
-
+    Arrays.fill(wasUpdatedLast, false);
     HashMap<Integer, Double> oobPredictions = new HashMap<>();
 
     // tvas: Alternative is to have a map from instance to a tuple (predictorIndexList, predictionList)
@@ -83,6 +84,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
     for (int i = 0; i < ensemble.length; i++) {
       int k = MiscUtils.poisson(this.lambdaOption.getValue(), this.classifierRandom);
       if (k > 0) {
+        wasUpdatedLast[i] = true;
         Instance weightedInstance = inst.copy();
         weightedInstance.setWeight(k);
         if(this.executor != null) {
@@ -117,6 +119,10 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
         throw new RuntimeException("Could not call invokeAll() on training threads.");
       }
 
+      // TODO: The rest of the code could also go to the beginning of the getVotesForInstance function
+      // (we just need to make oobPredictionFutures to be a class attribute.
+      // That way the oob predictions can happen async until they are needed to make the next interval prediction.
+      // TODO: IMPORTANT: For that to work, we can't use invokeAll above, because it blocks until futures are ready
       // TODO: Collection service would be better here
       for (Future<AbstractMap.Entry> future : oobPredictionFutures) {
         try {
@@ -157,7 +163,15 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
       HashMap<Integer, Double> predictorIndexPredictionMap = instancePredictionsMap.getValue();
       double sum = 0;
       for (Map.Entry<Integer, Double> predictorIndexPredictionEntry : predictorIndexPredictionMap.entrySet()) {
-        sum += predictorIndexPredictionEntry.getValue();
+        int ensembleIndex = predictorIndexPredictionEntry.getKey();
+        double pred;
+        if (wasUpdatedLast[ensembleIndex]) {
+          pred = ensemble[predictorIndexPredictionEntry.getKey()].getVotesForInstance(curInstance)[0];
+          predictorIndexPredictionEntry.setValue(pred);
+        } else {
+          pred = predictorIndexPredictionEntry.getValue();
+        }
+        sum += pred;
       }
       double prediction = sum / predictorIndexPredictionMap.size();
       predictions[i] = prediction;
@@ -218,6 +232,13 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
     NormalDistribution norm = new NormalDistribution(mean, std);
     double upperValue = norm.inverseCumulativeProbability(quantileUpper);
     double lowerValue = norm.inverseCumulativeProbability(quantileLower);
+    if (Double.isNaN(lowerValue)) {
+      lowerValue = mean;
+    }
+    if (Double.isNaN(upperValue)) {
+      upperValue = mean;
+    }
+    assert lowerValue <= upperValue;
 
     return new double[]{lowerValue, upperValue};
   }
@@ -283,6 +304,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
     quantileLower = 0.0 + halfConfidence;
     quantileUpper = 1.0 - halfConfidence;
     ensemble = null;
+    wasUpdatedLast = new boolean[ensembleSizeOption.getValue()];
     calibrationInstances = new HashMap<>();
     maxCalibrationInstances = maxCalibrationInstancesOption.getValue();
     calibrationScores = new double[maxCalibrationInstances];
