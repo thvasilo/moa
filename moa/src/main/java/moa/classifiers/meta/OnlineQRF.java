@@ -21,6 +21,7 @@ package moa.classifiers.meta;
 
 import com.bigml.histogram.Histogram;
 import com.bigml.histogram.MixedInsertException;
+import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
 import com.github.javacliparser.MultiChoiceOption;
@@ -89,6 +90,9 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   public IntOption numberOfJobsOption = new IntOption("numberOfJobs", 'j',
       "Total number of concurrent jobs used for processing (-1 = as much as possible, 0 = do not use multithreading)", 1, -1, Integer.MAX_VALUE);
 
+  public FlagOption averageHistograms = new FlagOption("averageHistograms", 'g',
+      "When given, will take the average of histogram quantiles, instead of merging them.");
+
 
   @Override
   public double[] getVotesForInstance(Instance inst) {
@@ -96,23 +100,42 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
     if(this.ensemble == null)
       initEnsemble(inst);
 
-    // Gather and merge all histograms
-    Histogram combinedHist;
-    if (executor != null) {
-      combinedHist = multiThreadedPredict(inst);
+    if (averageHistograms.isSet()) {
+      double upperSum = 0;
+      double lowerSum = 0;
+      for (HistogramLearner member : ensemble) {
+        if (!member.learner.trainingHasStarted()) {
+          return new double[]{0, 0};
+        }
+        Histogram curHist = member.getPredictionHistogram(inst);
+        HashMap quantilePredictions = curHist.percentiles(quantileLower, quantileUpper);
+        if (quantilePredictions.isEmpty()) {
+          continue;
+        }
+        upperSum += (double) quantilePredictions.get(quantileUpper);
+        lowerSum += (double) quantilePredictions.get(quantileLower);
+      }
+      return new double[]{lowerSum / ensembleSize.getValue(), upperSum / ensembleSize.getValue()};
     } else {
-      combinedHist = singleThreadedPredict(inst);
+      // Gather and merge all histograms
+      Histogram combinedHist;
+      if (executor != null) {
+        combinedHist = multiThreadedPredict(inst);
+      } else {
+        combinedHist = singleThreadedPredict(inst);
+      }
+
+      // Get quantile from merged histograms
+      assert combinedHist != null;
+      HashMap quantilePredictions = combinedHist.percentiles(quantileLower, quantileUpper);
+      if (quantilePredictions.isEmpty()) {
+        return new double[]{0, 0};
+      }
+      double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about using a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
+      double lowerPred = (double) quantilePredictions.get(quantileLower);
+      return new double[]{lowerPred, upperPred};
     }
 
-    // Get quantile from merged histograms
-    assert combinedHist != null;
-    HashMap quantilePredictions = combinedHist.percentiles(quantileLower, quantileUpper);
-    if (quantilePredictions.isEmpty()) {
-      return new double[]{0, 0};
-    }
-    double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about using a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
-    double lowerPred = (double) quantilePredictions.get(quantileLower);
-    return new double[]{lowerPred, upperPred};
   }
 
   private Histogram singleThreadedPredict(Instance inst) {
