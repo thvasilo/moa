@@ -51,7 +51,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
 
   private ArrayList<Instance> calibrationSet;
 
-  double[] calibrationScores;
+  Double[] calibrationScores;
 
   private void readCalibrationSet() {
     ArffFileStream stream = new ArffFileStream(calibrationDataset.getValue(), -1);
@@ -62,9 +62,9 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     }
   }
 
-  double[] errorFunction(double[] predictions, double[] trueValues) {
+  Double[] errorFunction(double[] predictions, double[] trueValues) {
     // Implementing the absolute error function for now, this could be generalized
-    double[] scores = new double[trueValues.length];
+    Double[] scores = new Double[trueValues.length];
     // TODO: Should be done in jBLAS or something
     for (int i = 0; i < trueValues.length; i++) {
       scores[i] = Math.abs(predictions[i] - trueValues[i]);
@@ -74,7 +74,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
   }
 
   /**
-   * Incerse of non-conformity function, i.e. calculates prediction interval (PI).
+   * Inverse of non-conformity function, i.e. calculates prediction interval (PI).
    * @param significance Interval confidenceOption. Example: If we want 90% PIs this should be 0.1
    * @return The value to add/subtract on each side of the prediction to get the PI
    */
@@ -82,14 +82,14 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     // tvas: Maybe this should be a class parameter to avoid re-calculation?
     // tvas: We assume the calibration scores are up-to-date and sorted
 //    double[] calibrationScores = reverseArray(this.calibrationScores); // TODO: Not necessary if I just pass confidenceOption as significance?
-    assert isSorted(calibrationScores); // TODO: Debug purposes, remove for testing
+//    assert isSorted(calibrationScores); // TODO: Debug purposes, remove for testing
     int border = (int) Math.floor(significance * (calibrationScores.length + 1)) - 1;
     border = Math.min(Math.max(border, 0), calibrationScores.length - 1);
     return calibrationScores[border];
   }
 
 
-  public static boolean isSorted(double[] data){
+  public static boolean isSorted(Double[] data){
     for(int i = 1; i < data.length; i++){
       if(data[i-1] > data[i]){
         return false;
@@ -109,7 +109,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
       assert prediction.length == 1;
       predictions[i] = prediction[0];
     }
-    double[] calScores = errorFunction(predictions, trueValues);
+    Double[] calScores = errorFunction(predictions, trueValues);
     Arrays.sort(calScores);
     calibrationScores = calScores;
   }
@@ -133,8 +133,13 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     model = (Classifier) getPreparedClassOption(baseLearnerOption);
     assert model instanceof Regressor; // Will this work?
     calibrationSet = new ArrayList<>();
+    calibrationScores = new Double[maxCalibrationInstancesOption.getValue()];
+    Arrays.fill(calibrationScores, 0d);
+
     model.resetLearning();
-    readCalibrationSet();
+    if (calibrationDataset.getValue().endsWith(".arff")) {
+      readCalibrationSet();
+    }
   }
 
   @Override

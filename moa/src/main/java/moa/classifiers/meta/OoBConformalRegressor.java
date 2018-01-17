@@ -43,9 +43,9 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
   protected Classifier[] ensemble;
   private boolean[] wasUpdatedLast;
   protected int subspaceSize;
-  private int maxCalibrationInstances = 100;
+  protected int maxCalibrationInstances;
 
-  private HashMap<Instance, HashMap<Integer, Double>> calibrationInstances;
+  protected HashMap<Instance, HashMap<Integer, Double>> instanceToLearnerToPrediction;
 
   protected ExecutorService executor;
   protected CompletionService<double[]> ecs;
@@ -70,15 +70,35 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
 
   @Override
   public void trainOnInstanceImpl(Instance inst) {
+
+    HashMap<Integer, Double> oobTreeIndicesToPredictions = commonTraining(inst);
+    // TODO: Have a "burn-in" period for the algo, where we ensure the first x
+    // data points end up as OoB for at least one learner. That way we fill up
+    // the calibration set as soon as possible
+    if (!oobTreeIndicesToPredictions.isEmpty()) {
+      if (instanceToLearnerToPrediction.size() < maxCalibrationInstances) {
+        instanceToLearnerToPrediction.put(inst, oobTreeIndicesToPredictions);
+      } else { // this way we are removing a random (?) element from the map
+        Set<Instance> instanceSet = instanceToLearnerToPrediction.keySet();
+        Instance[] instances = instanceSet.toArray(new Instance[instanceSet.size()]);
+
+        instanceToLearnerToPrediction.remove(instances[0]);
+        instanceToLearnerToPrediction.put(inst, oobTreeIndicesToPredictions);
+      }
+    }
+
+    updateCalibrationScores();
+  }
+
+  protected HashMap<Integer, Double> commonTraining(Instance inst) {
     Arrays.fill(wasUpdatedLast, false);
-    HashMap<Integer, Double> oobPredictions = new HashMap<>();
+    HashMap<Integer, Double> oobTreeIndicesToPredictions = new HashMap<>();
 
     // tvas: Alternative is to have a map from instance to a tuple (predictorIndexList, predictionList)
     // That way I have access to the indices of the predictors and their corresponding predictions in a
     // perhaps easier to iterate format. Guava matrix works as well here.
     if (this.ensemble == null)
       initEnsemble(inst);
-    boolean atLeastOneOoB = false;
     Collection<TrainingRunnable> inBag = new ArrayList<>();
     Collection<OoBPredictionRunnable> outOfBag = new ArrayList<>();
     for (int i = 0; i < ensemble.length; i++) {
@@ -97,14 +117,13 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
         }
       } else {
         if (ensemble[i].trainingHasStarted()) {
-          atLeastOneOoB = true;
           if (this.executor != null) {
             OoBPredictionRunnable predictor = new OoBPredictionRunnable(ensemble[i], inst, i);
             outOfBag.add(predictor);
           } else {
             double[] curPred =  ensemble[i].getVotesForInstance(inst);
             assert curPred.length == 1;
-            oobPredictions.put(i, curPred[0]);
+            oobTreeIndicesToPredictions.put(i, curPred[0]);
           }
         }
       }
@@ -126,39 +145,24 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
       // TODO: Collection service would be better here
       for (Future<AbstractMap.Entry> future : oobPredictionFutures) {
         try {
-          AbstractMap.Entry indexPred = future.get();
-          oobPredictions.put((Integer) indexPred.getKey(), (Double) indexPred.getValue());
+          AbstractMap.Entry treeIndexToPred = future.get();
+          oobTreeIndicesToPredictions.put((Integer) treeIndexToPred.getKey(), (Double) treeIndexToPred.getValue());
         } catch (InterruptedException | ExecutionException e) {
           e.printStackTrace();
         }
       }
     }
 
-    // TODO: Have a "burn-in" period for the algo, where we ensure the first x
-    // data points end up as OoB for at least one learner. That way we fill up
-    // the calibration set as soon as possible
-    if (atLeastOneOoB) {
-      if (calibrationInstances.size() < maxCalibrationInstances) {
-        calibrationInstances.put(inst, oobPredictions);
-      } else { // this way we are removing a random (?) element from the map
-        Set<Instance> instanceSet = calibrationInstances.keySet();
-        Instance[] instances = instanceSet.toArray(new Instance[instanceSet.size()]);
-
-        calibrationInstances.remove(instances[0]);
-        calibrationInstances.put(inst, oobPredictions);
-      }
-    }
-
-    updateCalibrationScores();
+    return oobTreeIndicesToPredictions;
   }
 
   @Override
   protected void updateCalibrationScores() {
     // TODO: Optimize, not necessary to update all scores with every tree update
-    double[] predictions = new double[calibrationInstances.size()];
-    double[] trueValues = new double[calibrationInstances.size()];
+    double[] predictions = new double[instanceToLearnerToPrediction.size()];
+    double[] trueValues = new double[instanceToLearnerToPrediction.size()];
     int i = 0; // Used to keep track of which calibration instance we are checking
-    for (Map.Entry<Instance, HashMap<Integer, Double>> instancePredictionsMap : calibrationInstances.entrySet()) {
+    for (Map.Entry<Instance, HashMap<Integer, Double>> instancePredictionsMap : instanceToLearnerToPrediction.entrySet()) {
       Instance curInstance = instancePredictionsMap.getKey();
       HashMap<Integer, Double> predictorIndexPredictionMap = instancePredictionsMap.getValue();
       double sum = 0;
@@ -179,7 +183,9 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
       i++;
     }
 
-    double[] calScores = errorFunction(predictions, trueValues);
+    Double[] calScores = errorFunction(predictions, trueValues);
+    // TODO: For the approximate version of the algorithm, find which sorting algo is best
+    // for almost sorted lists (binary search then simple insertion?)
     Arrays.sort(calScores);
     calibrationScores = calScores;
   }
@@ -187,7 +193,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
   @Override
   public double[] getVotesForInstance(Instance inst) {
     MomentAggregate curAggegate = getMoments(inst);
-    if (calibrationInstances.size() < 10) {
+    if (calibrationScores.length < 10) {
       // TODO: Predictive sd is a bad estimate, come up with something else
       // tvas: Depending on the lambda setting, it could be a while until we get 10 cal instances, careful!
       // One option: https://stats.stackexchange.com/a/255131/16052
@@ -300,14 +306,15 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
   @Override
   public void resetLearningImpl() {
     // Translate confidence to upper and lower quantiles
+    super.resetLearningImpl();
     double halfConfidence = (1.0 - confidenceOption.getValue()) / 2.0; // We divide by two for each region (lower,upper)
     quantileLower = 0.0 + halfConfidence;
     quantileUpper = 1.0 - halfConfidence;
     ensemble = null;
     wasUpdatedLast = new boolean[ensembleSizeOption.getValue()];
-    calibrationInstances = new HashMap<>();
+    instanceToLearnerToPrediction = new HashMap<>();
     maxCalibrationInstances = maxCalibrationInstancesOption.getValue();
-    calibrationScores = new double[maxCalibrationInstances];
+
     if (!calibrationDataset.getValue().equals("")) {
       System.out.println("WARNING: OoBCOnformalRegression should not take a calibration set! (-c option)");
     }
