@@ -183,7 +183,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
       i++;
     }
 
-    Double[] calScores = errorFunction(predictions, trueValues);
+    double[] calScores = errorFunction(predictions, trueValues);
     // TODO: For the approximate version of the algorithm, find which sorting algo is best
     // for almost sorted lists (binary search then simple insertion?)
     Arrays.sort(calScores);

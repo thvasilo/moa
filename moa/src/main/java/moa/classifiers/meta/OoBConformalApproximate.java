@@ -45,7 +45,7 @@ public class OoBConformalApproximate extends OoBConformalRegressor{
       i++;
     }
 
-    Double[] calScores = errorFunction(predictions, trueValues);
+    double[] calScores = errorFunction(predictions, trueValues);
     Arrays.sort(calScores);
     calibrationScores = calScores;
   }

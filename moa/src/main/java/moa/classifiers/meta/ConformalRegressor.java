@@ -51,7 +51,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
 
   private ArrayList<Instance> calibrationSet;
 
-  Double[] calibrationScores;
+  double[] calibrationScores;
 
   private void readCalibrationSet() {
     ArffFileStream stream = new ArffFileStream(calibrationDataset.getValue(), -1);
@@ -62,9 +62,9 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     }
   }
 
-  Double[] errorFunction(double[] predictions, double[] trueValues) {
+  double[] errorFunction(double[] predictions, double[] trueValues) {
     // Implementing the absolute error function for now, this could be generalized
-    Double[] scores = new Double[trueValues.length];
+    double[] scores = new double[trueValues.length];
     // TODO: Should be done in jBLAS or something
     for (int i = 0; i < trueValues.length; i++) {
       scores[i] = Math.abs(predictions[i] - trueValues[i]);
@@ -109,7 +109,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
       assert prediction.length == 1;
       predictions[i] = prediction[0];
     }
-    Double[] calScores = errorFunction(predictions, trueValues);
+    double[] calScores = errorFunction(predictions, trueValues);
     Arrays.sort(calScores);
     calibrationScores = calScores;
   }
@@ -133,7 +133,7 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     model = (Classifier) getPreparedClassOption(baseLearnerOption);
     assert model instanceof Regressor; // Will this work?
     calibrationSet = new ArrayList<>();
-    calibrationScores = new Double[maxCalibrationInstancesOption.getValue()];
+    calibrationScores = new double[maxCalibrationInstancesOption.getValue()];
     Arrays.fill(calibrationScores, 0d);
 
     model.resetLearning();
