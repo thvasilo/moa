@@ -21,18 +21,21 @@ package moa.classifiers.meta;
 
 import com.yahoo.labs.samoa.instances.Instance;
 
-import java.lang.reflect.Array;
 import java.util.*;
 
 public class OoBConformalApproximate extends OoBConformalRegressor{
 
-  private TreeSet<Double> sortedScores;
+  private PriorityQueue<Double> sortedScores;
 
   private HashMap<Instance, Double> calibrationInstanceToScore;
 
   @Override
   protected void updateCalibrationScores() {
-    calibrationScores = sortedScores.toArray(new Double[sortedScores.size()]);
+    assert calibrationInstanceToScore.size() <= maxCalibrationInstances;
+    Collection<Double> scores = calibrationInstanceToScore.values();
+    Double[] scoresArray = scores.toArray(new Double[scores.size()]);
+    Arrays.sort(scoresArray);
+    calibrationScores = scoresArray; // sortedScores.toArray(new Double[sortedScores.size()]);
   }
 
   @Override
@@ -40,16 +43,14 @@ public class OoBConformalApproximate extends OoBConformalRegressor{
 
     HashMap<Integer, Double> oobTreeIndicesToPredictions = commonTraining(inst);
 
-    // TODO: Have a "burn-in" period for the algo, where we ensure the first x
-    // data points end up as OoB for at least one learner. That way we fill up
-    // the calibration set as soon as possible
     if (!oobTreeIndicesToPredictions.isEmpty()) {
       double sum = 0;
       for (Double prediction : oobTreeIndicesToPredictions.values()) {
         sum += prediction;
       }
       double oobPrediction = sum / oobTreeIndicesToPredictions.size();
-      double score = Math.abs(inst.classValue() - oobPrediction);
+      double score = Math.abs(oobPrediction - inst.classValue());
+      assert score >= 0;
 
       if (calibrationInstanceToScore.size() < maxCalibrationInstances) {
 
@@ -61,8 +62,15 @@ public class OoBConformalApproximate extends OoBConformalRegressor{
 
         Double removedScore = calibrationInstanceToScore.remove(instances[0]);
         calibrationInstanceToScore.put(inst, oobPrediction);
-        sortedScores.remove(removedScore);
-        sortedScores.add(score);
+//        int prevSize = sortedScores.size();
+//        if (!sortedScores.remove(removedScore)) {
+//          System.out.println(Arrays.toString(sortedScores.toArray()));
+//          System.out.println();
+//          System.out.println(removedScore);
+//          System.out.println(trainingWeightSeenByModel);
+//        }
+//        assert sortedScores.size() == (prevSize - 1);
+//        sortedScores.add(score);
       }
     }
 
@@ -73,6 +81,6 @@ public class OoBConformalApproximate extends OoBConformalRegressor{
   public void resetLearningImpl() {
     super.resetLearningImpl();
     calibrationInstanceToScore = new HashMap<>();
-    sortedScores = new TreeSet<>();
+    sortedScores = new PriorityQueue<>();
   }
 }

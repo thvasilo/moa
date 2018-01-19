@@ -69,7 +69,7 @@ public class IntervalRegressionPerformanceEvaluator extends AbstractOptionHandle
     totalWeightObserved += 1.0;
     windowWeightObserved.add(1.0); // tvas: Don't want to mess with weights for now
     assert prediction.length == 2;
-    assert prediction[0] <= prediction[1]; // TODO: Remove assertions if doing timing tests
+    assert prediction[0] <= prediction[1] : "Lower: " + prediction[0] + " Upper: " + prediction[1]; // TODO: Remove assertions if doing timing tests
     // Check if the true value is within the given interval
     boolean withinInterval = (trueValue >= prediction[0]) && (trueValue <= prediction[1]);
     // Add one to the error rate only if it's not

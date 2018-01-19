@@ -82,9 +82,10 @@ public class ConformalRegressor extends AbstractClassifier implements Regressor{
     // tvas: Maybe this should be a class parameter to avoid re-calculation?
     // tvas: We assume the calibration scores are up-to-date and sorted
 //    double[] calibrationScores = reverseArray(this.calibrationScores); // TODO: Not necessary if I just pass confidenceOption as significance?
-//    assert isSorted(calibrationScores); // TODO: Debug purposes, remove for testing
+    assert isSorted(calibrationScores); // TODO: Debug purposes, remove for testing
     int border = (int) Math.floor(significance * (calibrationScores.length + 1)) - 1;
     border = Math.min(Math.max(border, 0), calibrationScores.length - 1);
+    assert calibrationScores[border] >= 0: "Calibration score: " + calibrationScores[border];
     return calibrationScores[border];
   }
 
