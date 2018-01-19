@@ -26,53 +26,27 @@ import java.util.*;
 
 public class OoBConformalApproximate extends OoBConformalRegressor{
 
-  private TreeSet<Double> sortedScores;
-
-  private HashMap<Instance, Double> calibrationInstanceToScore;
-
   @Override
   protected void updateCalibrationScores() {
-    calibrationScores = sortedScores.toArray(new Double[sortedScores.size()]);
-  }
-
-  @Override
-  public void trainOnInstanceImpl(Instance inst) {
-
-    HashMap<Integer, Double> oobTreeIndicesToPredictions = commonTraining(inst);
-
-    // TODO: Have a "burn-in" period for the algo, where we ensure the first x
-    // data points end up as OoB for at least one learner. That way we fill up
-    // the calibration set as soon as possible
-    if (!oobTreeIndicesToPredictions.isEmpty()) {
+    // TODO: Optimize, not necessary to update all scores with every tree update
+    double[] predictions = new double[instanceToLearnerToPrediction.size()];
+    double[] trueValues = new double[instanceToLearnerToPrediction.size()];
+    int i = 0; // Used to keep track of which calibration instance we are checking
+    for (Map.Entry<Instance, HashMap<Integer, Double>> instancePredictionsMap : instanceToLearnerToPrediction.entrySet()) {
+      Instance curInstance = instancePredictionsMap.getKey();
+      HashMap<Integer, Double> predictorIndexPredictionMap = instancePredictionsMap.getValue();
       double sum = 0;
-      for (Double prediction : oobTreeIndicesToPredictions.values()) {
-        sum += prediction;
+      for (Map.Entry<Integer, Double> predictorIndexPredictionEntry : predictorIndexPredictionMap.entrySet()) {
+        sum += predictorIndexPredictionEntry.getValue();
       }
-      double oobPrediction = sum / oobTreeIndicesToPredictions.size();
-      double score = Math.abs(inst.classValue() - oobPrediction);
-
-      if (calibrationInstanceToScore.size() < maxCalibrationInstances) {
-
-        calibrationInstanceToScore.put(inst, score);
-        sortedScores.add(score);
-      } else { // this way we are removing a random (?) element from the map
-        Set<Instance> instanceSet = calibrationInstanceToScore.keySet();
-        Instance[] instances = instanceSet.toArray(new Instance[instanceSet.size()]);
-
-        Double removedScore = calibrationInstanceToScore.remove(instances[0]);
-        calibrationInstanceToScore.put(inst, oobPrediction);
-        sortedScores.remove(removedScore);
-        sortedScores.add(score);
-      }
+      double prediction = sum / predictorIndexPredictionMap.size();
+      predictions[i] = prediction;
+      trueValues[i] = curInstance.classValue();
+      i++;
     }
 
-    updateCalibrationScores();
-  }
-
-  @Override
-  public void resetLearningImpl() {
-    super.resetLearningImpl();
-    calibrationInstanceToScore = new HashMap<>();
-    sortedScores = new TreeSet<>();
+    Double[] calScores = errorFunction(predictions, trueValues);
+    Arrays.sort(calScores);
+    calibrationScores = calScores;
   }
 }
