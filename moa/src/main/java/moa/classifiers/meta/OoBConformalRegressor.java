@@ -193,7 +193,7 @@ public class OoBConformalRegressor extends ConformalRegressor implements Paralle
   @Override
   public double[] getVotesForInstance(Instance inst) {
     MomentAggregate curAggegate = getMoments(inst);
-    if (calibrationScores.length < 10) {
+    if (calibrationScores.length < 2) {
       // TODO: Predictive sd is a bad estimate, come up with something else
       // tvas: Depending on the lambda setting, it could be a while until we get 10 cal instances, careful!
       // One option: https://stats.stackexchange.com/a/255131/16052
