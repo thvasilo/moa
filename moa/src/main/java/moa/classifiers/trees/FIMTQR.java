@@ -34,10 +34,6 @@ public class FIMTQR extends FIMTDD {
       "numBins", 'b', "Number of bins to use at leaf histograms",
       100, 1, Integer.MAX_VALUE);
 
-  public IntOption subspaceSizeOption = new IntOption("subspaceSizeSize", 'k',
-      "Number of features per subset for each node split. Negative values = #features - k",
-      2, Integer.MIN_VALUE, Integer.MAX_VALUE);
-
   public FIMTQR() {
 
   }
@@ -76,8 +72,14 @@ public class FIMTQR extends FIMTDD {
       subspaceSize = tree.subspaceSizeOption.getValue();
     }
 
+    public QRLeafNode(FIMTQR tree, Node existingNode) {
+      super(tree, existingNode);
+      labelHistogram = new Histogram(tree.numBins.getValue());
+      subspaceSize = tree.subspaceSizeOption.getValue();
+    }
+
     @Override
-    public void learnFromInstance(Instance inst, boolean growthAllowed) {
+    public void learnFromInstance(Instance inst) {
       // Create a list of unique attribute indices with subspaceSize elements
       // tvas: This seems more reasonable than what ARFHoeffdingTree does, shouldn't make
       // much diff in performance anyway, but could try micro-benching if it turns out this matters.
@@ -129,7 +131,7 @@ public class FIMTQR extends FIMTDD {
         }
       }
 
-      if (growthAllowed) {
+      if (tree.growthAllowed) {
         checkForSplit(tree);
       }
       try {
