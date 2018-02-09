@@ -50,7 +50,7 @@ import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
 public class OnlineQRF  extends AbstractClassifier implements Regressor, Parallel {
   private double quantileUpper;
   private double quantileLower;
-  private HistogramLearner[] ensemble;
+  private FIMTQR[] ensemble;
   private int subspaceSize;
   long instancesSeen;
 
@@ -58,7 +58,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   private CompletionService<Histogram> ecs;
   private ForkJoinPool forkJoinPool; // Needed because the streams interface will take all processors otherwise
 
-  public ClassOption treeLearnerOption = new ClassOption("treeLearner", 'l',
+  public ClassOption baseLearnerOption = new ClassOption("treeLearner", 'l',
       "Random Forest Tree.", Classifier.class,"trees.FIMTQR -e");
 
   public IntOption ensembleSize = new IntOption("ensembleSize", 's', "Number of trees in the ensemble",
@@ -118,8 +118,8 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   private Histogram singleThreadedPredict(Instance inst) {
     Histogram prevHist = null;
     // We iterate through all learners, and merge histograms as we go
-    for (HistogramLearner member : ensemble) {
-      if (!member.learner.trainingHasStarted()) {
+    for (FIMTQR member : ensemble) {
+      if (!member.trainingHasStarted()) {
         return new Histogram(numBins.getValue());
       }
       if (prevHist == null) {
@@ -142,8 +142,8 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
     ArrayList<Future<Histogram>> histogramFutures = new ArrayList<>();
     Histogram combinedHist = new Histogram(numBins.getValue());
 
-    for (HistogramLearner member : ensemble) {
-      if (!member.learner.trainingHasStarted()) {
+    for (FIMTQR member : ensemble) {
+      if (!member.trainingHasStarted()) {
         return combinedHist;
       }
       if (this.executor != null) {
@@ -214,7 +214,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
       initEnsemble(instance);
 
     Collection<TrainingRunnable> trainers = new ArrayList<>();
-    for (HistogramLearner member : ensemble) {
+    for (FIMTQR member : ensemble) {
       // Predict and evaluate here? ARF does this, why?
 //      double[] prediction = member.getVotesForInstance(instance);
       int k = MiscUtils.poisson(lambdaOption.getValue(), this.classifierRandom);
@@ -222,12 +222,12 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
         Instance weightedInstance = instance.copy();
         weightedInstance.setWeight(k);
         if(this.executor != null) {
-          TrainingRunnable trainer = new TrainingRunnable(member.learner,
+          TrainingRunnable trainer = new TrainingRunnable(member,
               weightedInstance);
           trainers.add(trainer);
         }
         else {
-          member.learner.trainOnInstance(weightedInstance);
+          member.trainOnInstance(weightedInstance);
         }
       }
     }
@@ -263,17 +263,21 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   protected void initEnsemble(Instance instance) {
     // Init the ensemble.
     int ensembleSize = this.ensembleSize.getValue();
-    ensemble = new HistogramLearner[ensembleSize];
+    ensemble = new FIMTQR[ensembleSize];
 
     subspaceSize = calculateSubspaceSize(
         mFeaturesPerTreeSizeOption.getValue(), mFeaturesModeOption.getChosenIndex(), instance);
 
-    // TODO: Ended up breaking encapsulation. If we want the underlying tree to independent we'll need to do a bit
-    // more work
+    FIMTQR baseLearner = (FIMTQR) getPreparedClassOption(this.baseLearnerOption);
+    baseLearner.subspaceSizeOption.setValue(subspaceSize);
+    baseLearner.numBins.setValue(numBins.getValue());
+    baseLearner.resetLearning();
+
+    // TODO: Ended up breaking encapsulation. Need to generalize if we want to use trees other than FIMT
     for (int i = 0; i < ensembleSize; i++) {
-      ensemble[i] = new HistogramLearner(numBins.getValue(), subspaceSize);
-      ensemble[i].learner.prepareForUse(); // Enforce config object creation. Should be better ways to do this
-      ensemble[i].learner.resetLearning();
+      ensemble[i] = (FIMTQR) baseLearner.copy();
+      ensemble[i].resetLearning();
+      ensemble[i].treeID = i;
     }
 
   }
@@ -301,24 +305,17 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
     }
   }
 
-  private class HistogramLearner {
-    public FIMTQR learner;
-
-    public HistogramLearner(int numBins, int subspaceSize) {
-      learner = new FIMTQR(numBins, subspaceSize);
-    }
-
-    public Histogram getPredictionHistogram(Instance instance) {
-      return learner.getPredictionHistogram(instance);
-    }
+  @Override
+  public Classifier[] getSubClassifiers() {
+    return this.ensemble;
   }
 
   class HistogramPredictionRunnable implements Runnable, Callable<Histogram> {
-    final private HistogramLearner learner;
+    final private FIMTQR learner;
     final private Instance instance;
     private Histogram histogram;
 
-    public HistogramPredictionRunnable(HistogramLearner learner, Instance instance) {
+    public HistogramPredictionRunnable(FIMTQR learner, Instance instance) {
       this.learner = learner;
       this.instance = instance;
     }

@@ -528,13 +528,10 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 			// Update the statistics for this node
 			// number of instances passing through the node
 			examplesSeen += inst.weight();
-
 			// sum of y values
 			sumOfValues += inst.weight() * inst.classValue();
-
 			// sum of squared y values
 			sumOfSquares += inst.weight() * inst.classValue() * inst.classValue();
-
 			// sum of absolute errors
 			sumOfAbsErrors += inst.weight() * Math.abs(tree.normalizeTargetValue(Math.abs(inst.classValue() - getPrediction(inst))));
 		}
@@ -1215,30 +1212,35 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 		}
 
 		int leafSumBefore = activeLeafNodeCount + inactiveLeafNodeCount;
-//		if (leafSizeEstimate > maxByteSizeOption.getValue()) {
-//			System.out.println(treeID + ": Max byte size limit hit at: " + leafSizeEstimate + " bytes!");
-//			System.out.println(treeID + ": Limit was: " + maxByteSizeOption.getValue() + " bytes");
-//			System.out.println(treeID + ": Active leaf nodes before fixing: " +  activeLeafNodeCount);
-//			System.out.println(treeID + ": Inactive leaf nodes before fixing: " +  inactiveLeafNodeCount);
-//
-//		}
+		if (leafSizeEstimate > maxByteSizeOption.getValue()) {
+			System.out.println(treeID + ": Max byte size limit hit at: " + leafSizeEstimate + " bytes!");
+			System.out.println(treeID + ": Limit was: " + maxByteSizeOption.getValue() + " bytes");
+			System.out.println(treeID + ": Active leaf nodes before fixing: " +  activeLeafNodeCount);
+			System.out.println(treeID + ": Inactive leaf nodes before fixing: " +  inactiveLeafNodeCount);
+		}
+
+		boolean nodesDeactivated = false;
 
 		if (stopMemManagementOption.isSet()) {
 			if (leafSizeEstimate > maxByteSizeOption.getValue()) {
-				System.out.println(treeID + ": Hit growth limit, stopping growth of tree");
+				System.out.println(treeID + ": Stopping growth...");
+			    //System.out.println(treeID + ": Hit growth limit, stopping growth of tree");
 				growthAllowed = false;
 				FoundNode[] learningNodes = findLearningNodes();
 				// Deactivate all learning nodes
+				nodesDeactivated = true;
 				for (FoundNode learningNode : learningNodes) {
+					// TODO: Seems like only some of the QRF nodes get deactivated instead of all, what's wrong with this condition?
 					if (learningNode.node instanceof LeafNode) {
 						deactivateLearningNode((LeafNode) learningNode.node, learningNode.parent, learningNode.parentBranch);
 					}
 				}
+				System.out.println(treeID + ": Active leaf nodes after fixing: " +  activeLeafNodeCount);
+				System.out.println(treeID + ": Inactive leaf nodes after fixing: " +  inactiveLeafNodeCount);
 			} else if (!growthAllowed) {
-				System.out.println(treeID + ": Enabling growth again!");
+			    //	System.out.println(treeID + ": Enabling growth again!");
 				growthAllowed = true;
 				// Reactivate nodes
-				// Deactivate all learning nodes
 				FoundNode[] learningNodes = findLearningNodes();
 				for (FoundNode learningNode : learningNodes) {
 					if (learningNode.node instanceof InactiveLearningNode) {
@@ -1246,12 +1248,11 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 					}
 				}
 			}
-
 			return;
 		}
-
+		assert false: "Should not get here!";
 		if ((inactiveLeafNodeCount > 0) || ( leafSizeEstimate > maxByteSizeOption.getValue())) {
-
+			nodesDeactivated = true;
 			// Get all learning nodes and sort them by promise
 			FoundNode[] learningNodes = findLearningNodes();
 			Arrays.sort(learningNodes, Comparator.comparingDouble(foundNode -> foundNode.node.calculatePromise()));
@@ -1290,10 +1291,10 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 				}
 			}
 		}
-//		if (leafSizeEstimate > maxByteSizeOption.getValue()) {
-//			System.out.println(treeID + ": Active leaf nodes after fixing: " +  activeLeafNodeCount);
-//			System.out.println(treeID + ": Inactive leaf nodes after fixing: " +  inactiveLeafNodeCount);
-//		}
+		if (nodesDeactivated) {
+			System.out.println(treeID + ": Active leaf nodes after fixing: " +  activeLeafNodeCount);
+			System.out.println(treeID + ": Inactive leaf nodes after fixing: " +  inactiveLeafNodeCount);
+		}
 
 		int leafSumAfter = activeLeafNodeCount + inactiveLeafNodeCount;
 
