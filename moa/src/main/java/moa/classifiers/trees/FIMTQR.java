@@ -25,8 +25,11 @@ import com.bigml.histogram.*;
 import com.yahoo.labs.samoa.instances.InstanceImpl;
 import moa.classifiers.core.attributeclassobservers.FIMTDDNumericAttributeClassObserver;
 import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
+import moa.core.Measurement;
+import moa.core.SizeOf;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 
 public class FIMTQR extends FIMTDD {
@@ -142,13 +145,10 @@ public class FIMTQR extends FIMTDD {
       // Update the statistics for this node
       // number of instances passing through the node
       examplesSeen += inst.weight();
-
       // sum of y values
       sumOfValues += inst.weight() * inst.classValue();
-
       // sum of squared y values
       sumOfSquares += inst.weight() * inst.classValue() * inst.classValue();
-
       // sum of absolute errors
       sumOfAbsErrors += inst.weight() * Math.abs(tree.normalizeTargetValue(Math.abs(inst.classValue() - getPrediction(inst))));
 
@@ -190,32 +190,6 @@ public class FIMTQR extends FIMTDD {
     }
   }
 
-  @Override
-  protected void deactivateLearningNode(LeafNode toDeactivate, SplitNode parent, int parentBranch) {
-    Node newLeaf = new QRInactiveNode(toDeactivate);
-    if (parent == null) {
-      this.treeRoot = newLeaf;
-    } else {
-      parent.setChild(parentBranch, newLeaf);
-    }
-    this.activeLeafNodeCount--;
-    this.inactiveLeafNodeCount++;
-  }
-
-//  @Override
-//  protected void activateLearningNode(InactiveLearningNode toActivate,
-//                                      SplitNode parent, int parentBranch) {
-//    Node newLeaf = this.newLeafNode(toActivate);
-//    if (parent == null) {
-//      this.treeRoot = newLeaf;
-//    } else {
-//      parent.setChild(parentBranch, newLeaf);
-//    }
-//    this.activeLeafNodeCount++;
-//    this.inactiveLeafNodeCount--;
-//  }
-
-  // TODO: SplitNodes don't need a histogram right?
   public static class QRSPlitNode extends SplitNode implements withHistogram{
 
     /**
@@ -230,7 +204,7 @@ public class FIMTQR extends FIMTDD {
 
     public Histogram getPredictionHistogram(Instance instance) {
       Node curNode = children.get(splitTest.branchForInstance(instance));
-      assert curNode instanceof withHistogram : "Node's class was: " + curNode.getClass();
+      assert curNode instanceof withHistogram : "Incorrect QRSplitNode class: " + curNode.getClass();
       return ((withHistogram) curNode).getPredictionHistogram(instance);
     }
   }
@@ -253,8 +227,34 @@ public class FIMTQR extends FIMTDD {
     return new QRSPlitNode(splitTest, this);
   }
 
+  @Override
+  protected InactiveLearningNode createInactiveNode(LeafNode existingNode) {
+    return new QRInactiveNode(existingNode);
+  }
+
   public Histogram getPredictionHistogram(Instance instance) {
     return ((withHistogram)treeRoot).getPredictionHistogram(instance);
   }
 
+  private int measureHistogramSize() {
+    FoundNode[] learningNodes = findLearningNodes();
+    int sizeSum = 0;
+    Instance dummy = new InstanceImpl(0);
+    for (FoundNode learningNode : learningNodes) {
+      Histogram labelHistogram = ((withHistogram) learningNode.node).getPredictionHistogram(dummy);
+      sizeSum += SizeOf.fullSizeOf(labelHistogram);
+    }
+
+    return sizeSum;
+  }
+
+  @Override
+  protected Measurement[] getModelMeasurementsImpl() {
+    Measurement[] fimtddMetrics =  super.getModelMeasurementsImpl();
+    Measurement histogramSize = new Measurement("histogram size (bytes)",
+        measureHistogramSize());
+    Measurement[] newMetrics = Arrays.copyOf(fimtddMetrics, fimtddMetrics.length + 1);
+    newMetrics[fimtddMetrics.length] = histogramSize;
+    return newMetrics;
+  }
 }
