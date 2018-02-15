@@ -141,12 +141,11 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 	public FlagOption learningRatioConstOption = new FlagOption(
 			"learningRatioConst", 'q', "Keep learning rate constant instead of decaying.");
 
-	public FlagOption prePruneOption = new FlagOption("noPrePrune", 'p',
+	public FlagOption prePruneOption = new FlagOption("prePrune", 'p',
 			"Enable pre-pruning.");
 
-	// Default is 32MiB
 	public IntOption maxByteSizeOption = new IntOption("maxByteSize", 'm',
-			"Maximum memory consumed by the tree.", 33554432, 0,
+			"Maximum memory consumed by the tree.", Integer.MAX_VALUE, 0,
 			Integer.MAX_VALUE);
 
 	public FlagOption stopMemManagementOption = new FlagOption(
@@ -222,10 +221,6 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 		 */
 		public double calculatePromise() {
 			return sumOfAbsErrors;
-		}
-
-		protected SufficientStats getSufficientStats() {
-			return new SufficientStats(examplesSeen, sumOfValues, sumOfSquares, sumOfAbsErrors);
 		}
 
 		/**
@@ -507,26 +502,6 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 			}
 		}
 	}
-
-	public static class SufficientStats {
-		// The statistics for this node:
-		// Number of instances that have reached it
-		protected double examplesSeen;
-		// Sum of y values
-		protected double sumOfValues;
-		// Sum of squared y values
-		protected double sumOfSquares;
-		// Sum of absolute errors
-		protected double sumOfAbsErrors; // Needed for PH tracking of mean error
-
-		public SufficientStats(double examplesSeen, double sumOfValues, double sumOfSquares, double sumOfAbsErrors) {
-			this.examplesSeen = examplesSeen;
-			this.sumOfValues = sumOfValues;
-			this.sumOfSquares = sumOfSquares;
-			this.sumOfAbsErrors = sumOfAbsErrors;
-		}
-	}
-
 
 	public static class InactiveLearningNode extends LearningNode {
 
@@ -899,7 +874,7 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 		double leafSizeEstimate = (
 				activeLeafNodeCount * activeLeafByteSizeEstimate + inactiveLeafNodeCount * inactiveLeafByteSizeEstimate)
 				* byteSizeEstimateOverheadFraction;
-		int totalModelSize = this.measureByteSize();
+		int totalTreeSize = this.measureByteSize();
 		return new Measurement[]{
 				new Measurement("tree size (nodes)", this.splitNodeCount
 						+ this.activeLeafNodeCount + this.inactiveLeafNodeCount),
@@ -918,8 +893,8 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 						this.byteSizeEstimateOverheadFraction),
 				new Measurement("total leaf byte size estimate",
 						leafSizeEstimate),
-				new Measurement("total model size",
-						totalModelSize)
+				new Measurement("total tree size",
+						totalTreeSize)
 		};
 	}
 
@@ -1258,7 +1233,6 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 				// Deactivate all learning nodes
 				nodesDeactivated = true;
 				for (FoundNode learningNode : learningNodes) {
-					// TODO: Seems like only some of the QRF nodes get deactivated instead of all, what's wrong with this condition?
 					if (learningNode.node instanceof LeafNode) {
 						deactivateLearningNode((LeafNode) learningNode.node, learningNode.parent, learningNode.parentBranch);
 					}
@@ -1266,9 +1240,10 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 //				System.out.println(treeID + ": Active leaf nodes after deactivation: " + activeLeafNodeCount);
 //				System.out.println(treeID + ": Inactive leaf nodes after deactivation: " + inactiveLeafNodeCount);
 				leafNumAtDeactivate = activeLeafNodeCount + inactiveLeafNodeCount;
-			} else if (!growthAllowed) {
+			}
+//			else if (!growthAllowed && maxByteSizeOption.getValue() > (leafSizeEstimate  + activeLeafByteSizeEstimate)) {
 //				assert leafNumAtDeactivate == activeLeafNodeCount + inactiveLeafNodeCount;
-//				System.out.println(treeID + ": Enabling growth again!");
+////				System.out.println(treeID + ": Enabling growth again!");
 //				// Reactivate nodes
 //				FoundNode[] learningNodes = findLearningNodes();
 //				growthAllowed = true;
@@ -1279,9 +1254,9 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 //						assert currentLearningNodes.length == leafSumBefore: "Num leafs before: " + leafSumBefore + ". Num leafs now: " + currentLearningNodes.length;
 //					}
 //				}
-//				System.out.println(treeID + ": Active leaf nodes after re-activation: " + activeLeafNodeCount);
-//				System.out.println(treeID + ": Inactive leaf nodes after re-activation: " + inactiveLeafNodeCount);
-			}
+////				System.out.println(treeID + ": Active leaf nodes after re-activation: " + activeLeafNodeCount);
+////				System.out.println(treeID + ": Inactive leaf nodes after re-activation: " + inactiveLeafNodeCount);
+//			}
 
 			return;
 		}
@@ -1327,10 +1302,10 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 				}
 			}
 		}
-		if (nodesDeactivated) {
-			System.out.println(treeID + ": Active leaf nodes after fixing: " + activeLeafNodeCount);
-			System.out.println(treeID + ": Inactive leaf nodes after fixing: " + inactiveLeafNodeCount);
-		}
+//		if (nodesDeactivated) {
+//			System.out.println(treeID + ": Active leaf nodes after fixing: " + activeLeafNodeCount);
+//			System.out.println(treeID + ": Inactive leaf nodes after fixing: " + inactiveLeafNodeCount);
+//		}
 
 		int leafSumAfter = activeLeafNodeCount + inactiveLeafNodeCount;
 
@@ -1424,7 +1399,6 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 				totalInactiveSize += SizeOf.fullSizeOf(foundNode.node);
 			} else {
 				totalActiveSize += SizeOf.fullSizeOf(foundNode.node);
-
 			}
 		}
 		if (totalActiveSize > 0) {
