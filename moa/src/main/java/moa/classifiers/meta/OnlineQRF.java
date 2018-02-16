@@ -19,6 +19,7 @@ package moa.classifiers.meta;
  * #L%
  */
 
+import com.bigml.histogram.Bin;
 import com.bigml.histogram.Histogram;
 import com.bigml.histogram.MixedInsertException;
 import com.github.javacliparser.FlagOption;
@@ -89,6 +90,9 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   public IntOption numberOfJobsOption = new IntOption("numberOfJobs", 'j',
       "Total number of concurrent jobs used for processing (-1 = as much as possible, 0 = do not use multithreading)", 1, -1, Integer.MAX_VALUE);
 
+  public FlagOption aggregateHistograms = new FlagOption("aggregateHistograms", 'x',
+      "Use aggregation of all histogram buckets instead of merging to one histogram");
+
 
   @Override
   public double[] getVotesForInstance(Instance inst) {
@@ -101,7 +105,12 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
     if (executor != null) {
       combinedHist = multiThreadedPredict(inst);
     } else {
-      combinedHist = singleThreadedPredict(inst);
+      if (aggregateHistograms.isSet()) {
+        combinedHist = aggregateSingleThreadedPredict(inst);
+      } else {
+        combinedHist = singleThreadedPredict(inst);
+      }
+
     }
 
     // Get quantile from merged histograms
@@ -113,6 +122,23 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
     double upperPred = (double) quantilePredictions.get(quantileUpper); // tvas: Not super happy about using a double as key, see https://stackoverflow.com/q/1074781/209882. Alt iterate over map?
     double lowerPred = (double) quantilePredictions.get(quantileLower);
     return new double[]{lowerPred, upperPred};
+  }
+
+  private Histogram aggregateSingleThreadedPredict(Instance inst) {
+    Histogram aggregateHist = new Histogram(numBins.getValue() * ensembleSize.getValue());
+    for (FIMTQR member : ensemble) {
+      if (!member.trainingHasStarted()) {
+        continue;
+      }
+      Histogram curHist = member.getPredictionHistogram(inst);
+      for (Object bin : curHist.getBins()) {
+        Bin curBin = (Bin) bin;
+        aggregateHist = aggregateHist.insertBin(curBin);
+      }
+
+    }
+
+    return aggregateHist;
   }
 
   private Histogram singleThreadedPredict(Instance inst) {
