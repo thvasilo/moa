@@ -144,6 +144,9 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 	public FlagOption prePruneOption = new FlagOption("prePrune", 'p',
 			"Enable pre-pruning.");
 
+	public FlagOption disableMemoryManagement = new FlagOption("disableMemoryManagement", 'v',
+			"Disable memory management.");
+
 	public IntOption maxByteSizeOption = new IntOption("maxByteSize", 'm',
 			"Maximum memory consumed by the tree.", Integer.MAX_VALUE, 0,
 			Integer.MAX_VALUE);
@@ -159,7 +162,7 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 
 	public IntOption subspaceSizeOption = new IntOption("subspaceSizeSize", 'k',
 			"Number of features per subset for each node split. Negative values = #features - k",
-			2, Integer.MIN_VALUE, Integer.MAX_VALUE);
+			100, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
 
 	//endregion ================ OPTIONS ================
@@ -874,7 +877,9 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 		double leafSizeEstimate = (
 				activeLeafNodeCount * activeLeafByteSizeEstimate + inactiveLeafNodeCount * inactiveLeafByteSizeEstimate)
 				* byteSizeEstimateOverheadFraction;
-		int totalTreeSize = this.measureByteSize();
+		// Don't measure memory size if we're not using memory management.
+		// TODO: Allow this measurement to happen, we have a guard in the memory estimate function now
+		int totalTreeSize = disableMemoryManagement.isSet()? 0 : this.measureByteSize();
 		return new Measurement[]{
 				new Measurement("tree size (nodes)", this.splitNodeCount
 						+ this.activeLeafNodeCount + this.inactiveLeafNodeCount),
@@ -953,8 +958,7 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 		double prediction = treeRoot.getPrediction(inst);
 		processInstance(inst, treeRoot, prediction, getNormalizedError(inst, prediction), false);
 
-		if (this.instancesSeen % this.memoryEstimatePeriodOption.getValue() == 0) {
-			// TODO: CHeck schedule of checks, ensure it fits with expected
+		if (this.instancesSeen % this.memoryEstimatePeriodOption.getValue() == 0 && !disableMemoryManagement.isSet()) {
 			estimateModelByteSizes();
 		}
 
@@ -1198,7 +1202,10 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 				splitNodeCount++;
 			}
 			// manage memory
-			enforceTrackerLimit(Double.NaN);
+			if (!disableMemoryManagement.isSet()) {
+				enforceTrackerLimit(Double.NaN);
+			}
+
 		}
 	}
 
@@ -1240,23 +1247,22 @@ public class FIMTDD extends AbstractClassifier implements Regressor {
 //				System.out.println(treeID + ": Active leaf nodes after deactivation: " + activeLeafNodeCount);
 //				System.out.println(treeID + ": Inactive leaf nodes after deactivation: " + inactiveLeafNodeCount);
 				leafNumAtDeactivate = activeLeafNodeCount + inactiveLeafNodeCount;
+			} else if (!growthAllowed && maxByteSizeOption.getValue() > (leafSizeEstimate  + activeLeafByteSizeEstimate)) {
+				assert leafNumAtDeactivate == activeLeafNodeCount + inactiveLeafNodeCount;
+//				System.out.println(treeID + ": Enabling growth again!");
+				// Reactivate nodes
+				FoundNode[] learningNodes = findLearningNodes();
+				growthAllowed = true;
+				for (FoundNode learningNode : learningNodes) {
+					if (learningNode.node instanceof InactiveLearningNode) {
+						activateLearningNode((InactiveLearningNode) learningNode.node, learningNode.parent, learningNode.parentBranch);
+						FoundNode[] currentLearningNodes = findLearningNodes();
+						assert currentLearningNodes.length == leafSumBefore: "Num leafs before: " + leafSumBefore + ". Num leafs now: " + currentLearningNodes.length;
+					}
+				}
+//				System.out.println(treeID + ": Active leaf nodes after re-activation: " + activeLeafNodeCount);
+//				System.out.println(treeID + ": Inactive leaf nodes after re-activation: " + inactiveLeafNodeCount);
 			}
-//			else if (!growthAllowed && maxByteSizeOption.getValue() > (leafSizeEstimate  + activeLeafByteSizeEstimate)) {
-//				assert leafNumAtDeactivate == activeLeafNodeCount + inactiveLeafNodeCount;
-////				System.out.println(treeID + ": Enabling growth again!");
-//				// Reactivate nodes
-//				FoundNode[] learningNodes = findLearningNodes();
-//				growthAllowed = true;
-//				for (FoundNode learningNode : learningNodes) {
-//					if (learningNode.node instanceof InactiveLearningNode) {
-//						activateLearningNode((InactiveLearningNode) learningNode.node, learningNode.parent, learningNode.parentBranch);
-//						FoundNode[] currentLearningNodes = findLearningNodes();
-//						assert currentLearningNodes.length == leafSumBefore: "Num leafs before: " + leafSumBefore + ". Num leafs now: " + currentLearningNodes.length;
-//					}
-//				}
-////				System.out.println(treeID + ": Active leaf nodes after re-activation: " + activeLeafNodeCount);
-////				System.out.println(treeID + ": Inactive leaf nodes after re-activation: " + inactiveLeafNodeCount);
-//			}
 
 			return;
 		}

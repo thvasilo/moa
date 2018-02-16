@@ -21,6 +21,7 @@ package moa.classifiers.meta;
 
 import com.bigml.histogram.Histogram;
 import com.bigml.histogram.MixedInsertException;
+import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
 import com.github.javacliparser.MultiChoiceOption;
@@ -62,11 +63,10 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
       "Random Forest Tree.", Classifier.class,"trees.FIMTQR -e");
 
   public IntOption ensembleSize = new IntOption("ensembleSize", 's', "Number of trees in the ensemble",
-      5, 1, Integer.MAX_VALUE);
+      10, 1, Integer.MAX_VALUE);
 
-  // This could be a float, but I feel this is enough precision
   public FloatOption confidenceLevel = new FloatOption("confidenceLevel", 'a',
-      "The confidence level in integer percentage points (e.g. 95 = 95% prediction interval)",
+      "The confidence level as a float (e.g. 0.95 = 95% prediction interval)",
       0.9, 0.0, 1.0);
 
   public IntOption numBins = new IntOption(
@@ -81,10 +81,10 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
       "Defines how m, defined by mFeaturesPerTreeSize, is interpreted. M represents the total number of features.",
       new String[]{"Specified m (integer value)", "sqrt(M)+1", "M-(sqrt(M)+1)",
           "Percentage (M * (m / 100))"},
-      new String[]{"SpecifiedM", "SqrtM1", "MSqrtM1", "Percentage"}, 1);
+      new String[]{"SpecifiedM", "SqrtM1", "MSqrtM1", "Percentage"}, 3);
 
   public IntOption mFeaturesPerTreeSizeOption = new IntOption("mFeaturesPerTreeSize", 'm',
-      "Number of features allowed considered for each split. Negative values corresponds to M - m", 2, Integer.MIN_VALUE, Integer.MAX_VALUE);
+      "Number of features allowed considered for each split. Negative values corresponds to M - m", 100, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
   public IntOption numberOfJobsOption = new IntOption("numberOfJobs", 'j',
       "Total number of concurrent jobs used for processing (-1 = as much as possible, 0 = do not use multithreading)", 1, -1, Integer.MAX_VALUE);
@@ -120,7 +120,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
     // We iterate through all learners, and merge histograms as we go
     for (FIMTQR member : ensemble) {
       if (!member.trainingHasStarted()) {
-        return new Histogram(numBins.getValue());
+        continue;
       }
       if (prevHist == null) {
         prevHist = member.getPredictionHistogram(inst);
@@ -135,7 +135,7 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
       }
     }
 
-    return prevHist;
+    return prevHist == null ? new Histogram(numBins.getValue()) : prevHist;
   }
 
   private Histogram multiThreadedPredict(Instance inst) {
@@ -189,9 +189,9 @@ public class OnlineQRF  extends AbstractClassifier implements Regressor, Paralle
   @Override
   public void resetLearningImpl() {
     // Translate confidence to upper and lower quantiles
-    double halfConfidence = (1.0 - confidenceLevel.getValue()) / 2.0; // We divide by two for each region (lower,upper)
-    quantileLower = 0.0 + halfConfidence;
-    quantileUpper = 1.0 - halfConfidence;
+    double halfSignificance = (1.0 - confidenceLevel.getValue()) / 2.0; // We divide by two for each region (lower,upper)
+    quantileLower = 0.0 + halfSignificance;
+    quantileUpper = 1.0 - halfSignificance;
 
     // Multi-threading
     int numberOfJobs;
