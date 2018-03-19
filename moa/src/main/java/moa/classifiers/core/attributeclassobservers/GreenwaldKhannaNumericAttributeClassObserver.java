@@ -51,8 +51,7 @@ public class GreenwaldKhannaNumericAttributeClassObserver extends AbstractOption
 
     @Override
     public void observeAttributeClass(double attVal, int classVal, double weight) {
-        if (Utils.isMissingValue(attVal)) {
-        } else {
+        if (!Utils.isMissingValue(attVal)) {
             GreenwaldKhannaQuantileSummary valDist = this.attValDistPerClass.get(classVal);
             if (valDist == null) {
                 valDist = new GreenwaldKhannaQuantileSummary(this.numTuplesOption.getValue());

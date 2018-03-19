@@ -74,6 +74,7 @@ public class InfoGainSplitCriterion extends AbstractOptionHandler implements
     public static double computeEntropy(double[][] dists) {
         double totalWeight = 0.0;
         double[] distWeights = new double[dists.length];
+        // The length of dists is the number of splits
         for (int i = 0; i < dists.length; i++) {
             distWeights[i] = Utils.sum(dists[i]);
             totalWeight += distWeights[i];

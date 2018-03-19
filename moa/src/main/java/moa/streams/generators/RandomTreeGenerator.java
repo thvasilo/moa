@@ -28,6 +28,8 @@ import com.yahoo.labs.samoa.instances.Instances;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
+
 import moa.core.InstanceExample;
 
 import com.yahoo.labs.samoa.instances.InstancesHeader;
@@ -55,7 +57,7 @@ public class RandomTreeGenerator extends AbstractOptionHandler implements
     private static final long serialVersionUID = 1L;
 
     public IntOption treeRandomSeedOption = new IntOption("treeRandomSeed",
-            'r', "Seed for random generation of tree.", 1);
+            'r', "Seed for random generation of tree.", ThreadLocalRandom.current().nextInt());
 
     public IntOption instanceRandomSeedOption = new IntOption(
             "instanceRandomSeed", 'i',

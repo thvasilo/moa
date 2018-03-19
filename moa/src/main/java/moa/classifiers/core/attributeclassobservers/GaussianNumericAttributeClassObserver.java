@@ -59,8 +59,7 @@ public class GaussianNumericAttributeClassObserver extends AbstractOptionHandler
 
     @Override
     public void observeAttributeClass(double attVal, int classVal, double weight) {
-        if (Utils.isMissingValue(attVal)) {
-        } else {
+        if (!Utils.isMissingValue(attVal)) {
             GaussianEstimator valDist = this.attValDistPerClass.get(classVal);
             if (valDist == null) {
                 valDist = new GaussianEstimator();

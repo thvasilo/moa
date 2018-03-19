@@ -151,7 +151,7 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
             't', "Threshold below which a split will be forced to break ties.",
             0.05, 0.0, 1.0);
 
-public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
+    public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
         "Only allow binary splits.");
 
     public FlagOption stopMemManagementOption = new FlagOption(
@@ -163,6 +163,9 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
 
     public FlagOption noPrePruneOption = new FlagOption("noPrePrune", 'p',
             "Disable pre-pruning.");
+
+    public FlagOption disableMemoryManagement = new FlagOption("disableMemoryManagement", 'v',
+        "Disable memory management.");
 
     public static class FoundNode {
 
@@ -538,8 +541,8 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
                 }
             }
         }
-        if (this.trainingWeightSeenByModel
-                % this.memoryEstimatePeriodOption.getValue() == 0) {
+        if (this.trainingWeightSeenByModel % this.memoryEstimatePeriodOption.getValue() == 0
+            && !disableMemoryManagement.isSet()) {
             estimateModelByteSizes();
         }
     }
@@ -696,7 +699,10 @@ public FlagOption binarySplitsOption = new FlagOption("binarySplits", 'b',
                     }
                 }
                 // manage memory
-                enforceTrackerLimit();
+                if (!disableMemoryManagement.isSet()) {
+                    enforceTrackerLimit();
+                }
+
             }
         }
     }
