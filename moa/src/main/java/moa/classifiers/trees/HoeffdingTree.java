@@ -167,6 +167,19 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
     public FlagOption disableMemoryManagement = new FlagOption("disableMemoryManagement", 'v',
         "Disable memory management.");
 
+    public MultiChoiceOption leafpredictionOption = new MultiChoiceOption(
+        "leafprediction", 'l', "Leaf prediction to use.", new String[]{
+        "MC", "NB", "NBAdaptive"}, new String[]{
+        "Majority class",
+        "Naive Bayes",
+        "Naive Bayes Adaptive"}, 2);
+
+    public IntOption nbThresholdOption = new IntOption(
+        "nbThreshold",
+        'q',
+        "The number of instances a leaf should observe before permitting Naive Bayes.",
+        0, 0, Integer.MAX_VALUE);
+
     public static class FoundNode {
 
         public Node node;
@@ -840,19 +853,6 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
             }
         }
     }
-
-    public MultiChoiceOption leafpredictionOption = new MultiChoiceOption(
-            "leafprediction", 'l', "Leaf prediction to use.", new String[]{
-                "MC", "NB", "NBAdaptive"}, new String[]{
-                "Majority class",
-                "Naive Bayes",
-                "Naive Bayes Adaptive"}, 2);
-
-    public IntOption nbThresholdOption = new IntOption(
-            "nbThreshold",
-            'q',
-            "The number of instances a leaf should observe before permitting Naive Bayes.",
-            0, 0, Integer.MAX_VALUE);
 
     public static class LearningNodeNB extends ActiveLearningNode {
 
