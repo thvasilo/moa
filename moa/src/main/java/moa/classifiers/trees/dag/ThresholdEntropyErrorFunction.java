@@ -29,27 +29,31 @@ public class ThresholdEntropyErrorFunction {
   // The specific parent we are optimizing currently
   private DAGLearningNode currentParent;
 
+  private int numClasses;
+  private ClassHistogram leftHistogram;
+  private ClassHistogram rightHistogram ;
+  private EntropyHistogram leftEntropyHistogram;
+  private EntropyHistogram rightEntropyHistogram;
+
+
   public ThresholdEntropyErrorFunction(ArrayList<DAGLearningNode> row, DAGLearningNode currentParent) {
     this.row = row;
     this.currentParent = currentParent;
+    numClasses = currentParent.getObservedClassDistribution().length;
+    leftHistogram = new ClassHistogram(numClasses);
+    rightHistogram = new ClassHistogram(numClasses);
+    leftEntropyHistogram = new EntropyHistogram(numClasses);
+    rightEntropyHistogram = new EntropyHistogram(numClasses);
     initializeHistograms();
   }
 
-  ClassHistogram leftHistogram;
-  ClassHistogram rightHistogram;
-  EntropyHistogram leftEntropyHistogram;
-  EntropyHistogram rightEntropyHistogram;
+  public void initializeHistograms() {
 
-  void initializeHistograms() {
 
-    // TODO: Not sure if this will be correct, as some classes may have not been observed.
-    // It might be safer to get the number of classes some other way
-    int classCount = row.get(0).getObservedClassDistribution().length;
-
-    leftHistogram.resize(classCount);
-    rightHistogram.resize(classCount);
-    leftEntropyHistogram.resize(classCount);
-    rightEntropyHistogram.resize(classCount);
+    leftHistogram.resize(numClasses);
+    rightHistogram.resize(numClasses);
+    leftEntropyHistogram.resize(numClasses);
+    rightEntropyHistogram.resize(numClasses);
 
     // Compute the base histograms for all child nodes
     for (int i = 0; i < row.size(); i++) {
@@ -86,21 +90,45 @@ public class ThresholdEntropyErrorFunction {
     }
 
     // Compute the current histograms for nodes that are children of the current parent (?)
-    leftEntropyHistogram.merge(leftHistogram); // TODO: Do I want to be able to do this in one step, to avoid one merge?
-    leftEntropyHistogram.merge(currentParent.getLeftHistogram());
-    leftEntropyHistogram.initializeEntropies();
-    rightEntropyHistogram.merge(rightHistogram);
-    rightEntropyHistogram.merge(currentParent.getRightHistogram());
-    rightEntropyHistogram.initializeEntropies();
+    leftEntropyHistogram = new EntropyHistogram(leftHistogram.merge(currentParent.getLeftHistogram()));
+    rightEntropyHistogram = new EntropyHistogram(rightHistogram.merge(currentParent.getRightHistogram()));
+  }
 
+  void resetHistograms() {
+    rightEntropyHistogram.reset();
+
+    leftEntropyHistogram = new EntropyHistogram(leftHistogram);
+    rightEntropyHistogram = new EntropyHistogram(rightHistogram.merge(currentParent.getClassHistogram()));
   }
 
   /**
    * Calculates the error if we split. This function expects the local histograms to be already computed.
    */
-  double error()
+  public double error()
   {
     return  1/(leftEntropyHistogram.getMass() + rightEntropyHistogram.getMass()) *
         (leftEntropyHistogram.entropy() + rightEntropyHistogram.entropy());
+  }
+
+  /**
+   * Moves one training example from the right to the left histogram
+   */
+  public void move(int classLabel)
+  {
+    leftEntropyHistogram.addOne(classLabel);
+    rightEntropyHistogram.subOne(classLabel);
+  }
+
+  public void setClassCounts(int classLabel, int leftCount, int rightCount) {
+    leftEntropyHistogram.set(classLabel, leftCount);
+    rightEntropyHistogram.set(classLabel, rightCount);
+  }
+
+  public EntropyHistogram getLeftEntropyHistogram() {
+    return leftEntropyHistogram;
+  }
+
+  public EntropyHistogram getRightEntropyHistogram() {
+    return rightEntropyHistogram;
   }
 }

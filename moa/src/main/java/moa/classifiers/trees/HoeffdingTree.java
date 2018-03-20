@@ -405,7 +405,7 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
 
         protected double weightSeenAtLastSplitEvaluation;
 
-        protected AutoExpandVector<AttributeClassObserver> attributeObservers = new AutoExpandVector<AttributeClassObserver>();
+        protected AutoExpandVector<AttributeClassObserver> attributeObservers = new AutoExpandVector<>();
         
         protected boolean isInitialized;
 
@@ -424,7 +424,7 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
         @Override
         public void learnFromInstance(Instance inst, HoeffdingTree ht) {
             if (this.isInitialized == false) {
-                this.attributeObservers = new AutoExpandVector<AttributeClassObserver>(inst.numAttributes());
+                this.attributeObservers = new AutoExpandVector<>(inst.numAttributes());
                 this.isInitialized = true;
             }
             this.observedClassDistribution.addToValue((int) inst.classValue(),

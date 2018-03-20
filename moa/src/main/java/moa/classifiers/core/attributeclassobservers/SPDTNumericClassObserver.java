@@ -42,7 +42,7 @@ public class SPDTNumericClassObserver extends AbstractOptionHandler implements N
   private int maxBins = 64; // TODO: Add as option
   private int numSplitPoints = 10; // TODO: Add as option
 
-  private boolean useSPDT = true;
+  private boolean useSPDT = false; // Set to true to use SPDT, false to use DataSketch
 
   private HistogramFactory histFactory = new HistogramFactory();
 
@@ -138,6 +138,10 @@ public class SPDTNumericClassObserver extends AbstractOptionHandler implements N
       }
     }
     return new double[][]{lhsDist.getArrayRef(), rhsDist.getArrayRef()};
+  }
+
+  public AutoExpandVector<MergeableHistogram> getAttHistPerClass() {
+    return attHistPerClass;
   }
 
   @Override

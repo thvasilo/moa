@@ -23,6 +23,7 @@ import com.github.javacliparser.FloatOption;
 import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.core.AttributeSplitSuggestion;
 import moa.classifiers.core.attributeclassobservers.AttributeClassObserver;
+import moa.classifiers.core.attributeclassobservers.SPDTNumericClassObserver;
 import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
 import moa.classifiers.trees.HoeffdingTree;
@@ -32,9 +33,10 @@ import java.util.*;
 
 public class HoeffdingDAG extends RandomHoeffdingTree {
   public FloatOption growthRate = new FloatOption("growthRate",
-      't', "The rate at which we allow DAG width levels to grow. 2 is equivalent to a tree.",
+      'u', "The rate at which we allow DAG width levels to grow. 2 is equivalent to a tree.",
       1.5, 1.0 + Double.MIN_VALUE, 2.0);
 
+  public int numSplitPoints = 10; // TODO: Add as option
   private int maxLevel = 10;
   private int maxWidth = 256;
   private int maxIterations = 10;
@@ -44,7 +46,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
   // tvas: This could perhaps be tied into the nodes themselves, but let's try it this way first
   int readyToSplit; // Keeps count of how many nodes are ready to split at the current learning row
-  ArrayList<Node> learningRow; // All the learning nodes at the current bottom level of the DAG
+  ArrayList<DAGLearningNode> learningRow; // All the learning nodes at the current bottom level of the DAG
   // tvas: This map is a temp solution.
   // 1: We prolly want to update the best suggestion anyway
   // 2: I don't like mapping from node to attribute suggestion
@@ -63,10 +65,9 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
   @Override
   public void trainOnInstanceImpl(Instance inst) {
-    // TODO
     if (this.treeRoot == null) {
       this.treeRoot = newLearningNode();
-      learningRow.add(this.treeRoot);
+      learningRow.add((DAGLearningNode) this.treeRoot);
       this.activeLeafNodeCount = 1;
     }
     FoundNode foundNode = this.treeRoot.filterInstanceToLeaf(inst, null, -1);
@@ -83,6 +84,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       if (this.growthAllowed && (learningNode instanceof ActiveLearningNode)) {
         ActiveLearningNode activeLearningNode = (ActiveLearningNode) learningNode;
         double weightSeen = activeLearningNode.getWeightSeen();
+
         if (weightSeen - activeLearningNode.getWeightSeenAtLastSplitEvaluation() >= this.gracePeriodOption.getValue()) {
           Optional<AttributeSplitSuggestion> bestSplitOptional = ((DAGLearningNode) activeLearningNode).checkForSplit() ;
           if (bestSplitOptional.isPresent()) {
@@ -90,7 +92,8 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
             nodeToSplitSuggestion.put(activeLearningNode, bestSplitOptional.get());
           }
 //          attemptToSplit(activeLearningNode, foundNode.parent, foundNode.parentBranch);
-          if (readyToSplit / learningRow.size() > 0.5) {
+          // tvas: When should we instantiate the next level of nodes?
+          if (readyToSplit / learningRow.size() > 0.5) { // TODO: Placeholder, need to find a reasonable criterion!!
             splitLearningRow();
             readyToSplit = 0;
           }
@@ -104,21 +107,18 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     }
   }
 
-  private void splitLearningRow() {
+  private void splitLearningRow() { //TODO: Do I want the parent row and child count as arguments here?
 
     int iterations = 0;
     boolean change = false;
     do {
       // Find threshold
       for (Node node : learningRow) {
-        ActiveLearningNode alNode = (ActiveLearningNode) node;
-        AttributeSplitSuggestion bestSplit = getSplitSuggestions(alNode)[0];
-        if (bestSplit != nodeToSplitSuggestion.get(node)) {
-          change = true;
-          nodeToSplitSuggestion.put(alNode, bestSplit);
-        }
+        DAGLearningNode dagNode = (DAGLearningNode) node;
+        change = dagNode.findThreshold(learningRow);
       }
       // Find best assignment
+      // TODO
     } while (iterations < maxIterations && change);
 
   }
@@ -136,5 +136,19 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     return new DAGLearningNode(initialClassObservations, this);
   }
 
+  @Override
+  protected AttributeClassObserver newNominalClassObserver() {
+    throw new UnsupportedOperationException("No support for nominal features yet!");
+  }
 
+  @Override
+  protected AttributeClassObserver newNumericClassObserver() {
+    return new SPDTNumericClassObserver();
+  }
+
+
+  @Override
+  public String toString() {
+    return super.toString();
+  }
 }
