@@ -19,7 +19,7 @@ package moa.core.sketches;
  * #L%
  */
 
-public interface MergeableHistogram {
+public interface MergeableHistogram<T extends MergeableHistogram<T>> {
 
   /**
    * Insert a value to the histogram.
@@ -32,7 +32,7 @@ public interface MergeableHistogram {
    * @param other A Histogram object, must be of the same class.
    * @return Returns the histogram object after modification.
    */
-  MergeableHistogram merge(MergeableHistogram other);
+  T merge(T other);
 
   /**
    * Will derive a list of split points at which the histogram bins have approximately equal number of data points.

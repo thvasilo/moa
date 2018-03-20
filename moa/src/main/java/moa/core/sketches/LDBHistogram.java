@@ -26,7 +26,7 @@ import com.yahoo.sketches.quantiles.UpdateDoublesSketch;
 /**
  * Histogram based on the  PK Agarwal "Mergeable Summaries" paper, using Yahoo DataSketches implementation
  */
-public class LDBHistogram implements MergeableHistogram {
+public class LDBHistogram implements MergeableHistogram<LDBHistogram> {
 
   private UpdateDoublesSketch histogram;
 
@@ -40,16 +40,11 @@ public class LDBHistogram implements MergeableHistogram {
   }
 
   @Override
-  public MergeableHistogram merge(MergeableHistogram other) {
-    if (other instanceof LDBHistogram) {
-      LDBHistogram otherSketch = (LDBHistogram) other;
-
-      DoublesUnion union = DoublesUnion.builder().build();
-      union.update(this.histogram);
-      union.update(otherSketch.histogram);
-
-      this.histogram = union.getResult();
-    }
+  public LDBHistogram merge(LDBHistogram other) {
+    DoublesUnion union = DoublesUnion.builder().build();
+    union.update(this.histogram);
+    union.update(other.histogram);
+    this.histogram = union.getResult();
     return this;
   }
 

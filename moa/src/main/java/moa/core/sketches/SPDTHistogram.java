@@ -29,7 +29,7 @@ import java.util.ArrayList;
 /**
  * Histogram based on the Ben-Haim Streaming Parallel Decision Tree paper
  */
-public class SPDTHistogram implements MergeableHistogram {
+public class SPDTHistogram implements MergeableHistogram<SPDTHistogram> {
 
   private Histogram<NumericTarget> histogram;
 
@@ -47,15 +47,12 @@ public class SPDTHistogram implements MergeableHistogram {
   }
 
   @Override
-  public MergeableHistogram merge(MergeableHistogram other) {
-    if (other instanceof SPDTHistogram) {
-      SPDTHistogram otherSPDT = (SPDTHistogram) other;
-      try {
-        // TODO: The merge will affect the internal state of the histogram, do we want that?
-        histogram.merge(otherSPDT.histogram);
-      } catch (MixedInsertException e) {
-        e.printStackTrace();
-      }
+  public SPDTHistogram merge(SPDTHistogram other) {
+    try {
+      // TODO: The merge will affect the internal state of the histogram, do we want that?
+      histogram.merge(other.histogram);
+    } catch (MixedInsertException e) {
+      e.printStackTrace();
     }
     return this;
   }
