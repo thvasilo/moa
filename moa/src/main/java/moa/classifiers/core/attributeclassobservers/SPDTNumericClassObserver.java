@@ -19,13 +19,7 @@ package moa.classifiers.core.attributeclassobservers;
  * #L%
  */
 
-import com.bigml.histogram.Histogram;
-import com.bigml.histogram.MixedInsertException;
-import com.bigml.histogram.NumericTarget;
 import com.bigml.histogram.SumOutOfRangeException;
-import com.yahoo.sketches.quantiles.DoublesSketch;
-import com.yahoo.sketches.quantiles.DoublesUnion;
-import com.yahoo.sketches.quantiles.UpdateDoublesSketch;
 import moa.classifiers.core.AttributeSplitSuggestion;
 import moa.classifiers.core.conditionaltests.NumericAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
@@ -34,6 +28,7 @@ import moa.core.DoubleVector;
 import moa.core.ObjectRepository;
 import moa.options.AbstractOptionHandler;
 import moa.tasks.TaskMonitor;
+import moa.core.sketches.*;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -51,152 +46,14 @@ public class SPDTNumericClassObserver extends AbstractOptionHandler implements N
 
   private HistogramFactory histFactory = new HistogramFactory();
 
-  private interface MergeableHistogram {
-
-    /**
-     * Insert a value to the histogram.
-     * @param value
-     */
-    void update(Double value);
-
-    /**
-     * Merge the current histogram with another. Modifies the state of the internal histogram.
-     * @param other A Histogram object, must be of the same class.
-     * @return Returns the histogram object after modification.
-     */
-    MergeableHistogram merge(MergeableHistogram other);
-
-    /**
-     * Will derive a list of split points at which the histogram bins have approximately equal number of data points.
-     * @param numPoints The desired number of uniform bins.
-     * @return
-     */
-    double[] uniform(Integer numPoints);
-
-    /**
-     * Get the total number of points in the histogram.
-     * @return
-     */
-    long getTotalCount();
-
-    /**
-     * Get the number of data points which are less than or equal to the provided value.
-     * @param p The cutoff point for the cumulative sum
-     * @return The number of elements in the histogram less than or equal to p
-     */
-    double getSum(double p);
-  }
 
   private class HistogramFactory implements Serializable{
     public SPDTHistogram makeSPDT(int numBins) {
       return new SPDTHistogram(numBins);
     }
 
-    public SketchHistogram makeSketch(int numBins) {
-      return new SketchHistogram(numBins);
-    }
-  }
-
-  private class SketchHistogram implements MergeableHistogram {
-
-    private UpdateDoublesSketch histogram;
-
-    @Override
-    public void update(Double value) {
-
-    }
-
-    public SketchHistogram(int numBins) {
-      histogram = DoublesSketch.builder().setK(numBins).build();
-    }
-
-    @Override
-    public MergeableHistogram merge(MergeableHistogram other) {
-      if (other instanceof SketchHistogram) {
-        SketchHistogram otherSketch = (SketchHistogram) other;
-
-        DoublesUnion union = DoublesUnion.builder().build();
-        union.update(this.histogram);
-        union.update(otherSketch.histogram);
-
-        this.histogram = union.getResult();
-      }
-      return this;
-    }
-
-    @Override
-    public double[] uniform(Integer numPoints) {
-      return histogram.getQuantiles(numPoints);
-    }
-
-    @Override
-    public long getTotalCount() {
-      return histogram.getN();
-    }
-
-    @Override
-    public double getSum(double p) {
-      double[] cdfPoints = histogram.getCDF(new double[]{p});
-      return cdfPoints[0] * getTotalCount();
-    }
-  }
-
-
-
-  private class SPDTHistogram implements MergeableHistogram {
-
-    private Histogram<NumericTarget> histogram;
-
-    public SPDTHistogram(int numBins) {
-      histogram = new Histogram<>(numBins);
-    }
-
-    @Override
-    public void update(Double value) {
-      try {
-        histogram.insert(value);
-      } catch (MixedInsertException e) {
-        e.printStackTrace();
-      }
-    }
-
-    @Override
-    public MergeableHistogram merge(MergeableHistogram other) {
-      if (other instanceof SPDTHistogram) {
-        SPDTHistogram otherSPDT = (SPDTHistogram) other;
-        try {
-          // TODO: The merge will affect the internal state of the histogram, do we want that?
-          histogram.merge(otherSPDT.histogram);
-        } catch (MixedInsertException e) {
-          e.printStackTrace();
-        }
-      }
-      return this;
-    }
-
-    @Override
-    public double[] uniform(Integer numPoints) {
-      ArrayList<Double> points = histogram.uniform(numPoints);
-      double[] pointsArray = new double[points.size()];
-      for (int i = 0; i < points.size(); i++) {
-        pointsArray[i] = points.get(i);
-      }
-      return pointsArray;
-    }
-
-    @Override
-    public long getTotalCount() {
-      return (long) histogram.getTotalCount();
-    }
-
-    @Override
-    public double getSum(double p) {
-      try {
-        return histogram.sum(p);
-      } catch (SumOutOfRangeException e) {
-        e.printStackTrace();
-        return 0;
-      }
+    public LDBHistogram makeSketch(int numBins) {
+      return new LDBHistogram(numBins);
     }
   }
 
