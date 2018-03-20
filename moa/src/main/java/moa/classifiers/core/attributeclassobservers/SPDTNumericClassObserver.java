@@ -42,7 +42,7 @@ public class SPDTNumericClassObserver extends AbstractOptionHandler implements N
   private int maxBins = 64; // TODO: Add as option
   private int numSplitPoints = 10; // TODO: Add as option
 
-  private boolean useSPDT = false;
+  private boolean useSPDT = true;
 
   private HistogramFactory histFactory = new HistogramFactory();
 
