@@ -73,19 +73,19 @@ public class ThresholdEntropyErrorFunction {
       // as a parent as well, we add the hisstograms of those parents to the total.
       if (leftNode == otherParent.getTempLeft()) {
         // Current's left child is other's left child as well
-        leftHistogram.merge(otherLeftHistogram);
+        leftHistogram = leftHistogram.merge(otherLeftHistogram);
       }
       if (rightNode == otherParent.getTempRight()) {
         // Current's right child is other's right child as well
-        rightHistogram.merge(otherRightHistogram);
+        rightHistogram = rightHistogram.merge(otherRightHistogram);
       }
       if (leftNode == otherParent.getTempRight()) {
         // Current's left child is other's right child as well
-        leftHistogram.merge(otherRightHistogram);
+        leftHistogram = leftHistogram.merge(otherRightHistogram);
       }
       if (rightNode == otherParent.getTempLeft()) {
         // Current's right child is other's left child as well
-        rightHistogram.merge(otherLeftHistogram);
+        rightHistogram = rightHistogram.merge(otherLeftHistogram);
       }
     }
 

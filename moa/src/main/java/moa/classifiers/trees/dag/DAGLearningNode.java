@@ -30,10 +30,7 @@ import moa.classifiers.trees.RandomHoeffdingTree;
 import moa.core.AutoExpandVector;
 import moa.core.sketches.MergeableHistogram;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
@@ -60,6 +57,7 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     this.tree = tree;
     bestFeature = 0;
     bestThreshold = 0.0;
+//    weightSeenAtLastSplitEvaluation = Arrays.stream(initialClassObservations).sum(); // TODO: Not sure if this is correct
   }
 
 
@@ -68,53 +66,59 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     // Do the learning as usual
     super.learnFromInstance(inst, ht);
     // In addition, maintain a class histogram for the left and right children
-    int childBranch = inst.valueInputAttribute(bestFeature) < bestThreshold ? 0 : 1;
+    int childBranch = inst.valueInputAttribute(bestFeature) <= bestThreshold ? 0 : 1;
     if (childBranch == 0) { // TODO: Add instance weight here instead of one
-      leftHistogram.addOne(inst.classIndex());
+      leftHistogram.addOne((int) inst.classValue());
     } else {
-      rightHistogram.addOne(inst.classIndex());
+      rightHistogram.addOne((int) inst.classValue());
     }
   }
 
   /**
-   * Finds the best feature and threshold combination for the node, given all the other parent nodes.
+   * Finds the best feature and threshold combination for the node, given all the parent nodes.
    * @param parentNodes The row of parent nodes that are currently the active learning leafs.
    * @return True if the best feature/threshold combination changed, false otherwise.
    */
   public boolean findThreshold(ArrayList<DAGLearningNode> parentNodes) {
+    // The error function object keeps track of the entropy statistics of the, including how the other parents affect
+    // the current node's children.
     ThresholdEntropyErrorFunction errorFunction = new ThresholdEntropyErrorFunction(
         parentNodes, this);
 
+    // This will initialize the histograms with the relevant data from all parents
     errorFunction.initializeHistograms();
 
+    // Calculate the initial entropy/error
     double previousError = errorFunction.error();
+    ClassHistogram bestLeftHistogram = errorFunction.getLeftEntropyHistogram().toClassHistogram();
+    ClassHistogram bestRightHistogram = errorFunction.getRightEntropyHistogram().toClassHistogram();
 
+    // We then reset the current node's histograms. These are the ones that change as we move the node's split point.
     errorFunction.resetHistograms();
-
-    // TODO: Reset right/eleft histograms
 
     boolean changed = false;
 
-    // Iterate over all sampled features in to see if a better feature/threshold combination exists
+    // Clear the left histogram, and the right one becomes the node histogram.
+    this.resetLeftRightHistogram();
+
+    // Iterate over all sampled features to see if a better feature/threshold combination exists
     for (int localAttIndex = 0; localAttIndex < this.numAttributes - 1; localAttIndex++) {
       int overallAttIndex = this.listAttributes[localAttIndex];
-//      assert overallAttIndex == localAttIndex : "Not sure if these should be equal actually.";
       // tvas: To get a first working version we will select a threshold randomly within the observed values
       // todo: later we'll need to optimize the threshold selection
 
       // To get candidate split points, we get the overall distribution of the attribute
       // disreagarding the class, and create a uniform histogram out of that.
-      // The bin borders give us the candidate split points
+      // The bin borders give us the candidate split points. See SPDT Sec. 2.2.
       SPDTNumericClassObserver obs = (SPDTNumericClassObserver) attributeObservers.get(overallAttIndex);
-
       AutoExpandVector<MergeableHistogram> histsPerClass = obs.getAttHistPerClass();
-
       MergeableHistogram mergedHists = mergeHists(histsPerClass);
-
       double[] splitPoints = mergedHists.uniform(tree.numSplitPoints);
 
       // Select a single random split point
       double newSplitPoint = splitPoints[ThreadLocalRandom.current().nextInt(splitPoints.length)];
+      // TODO: Iterate over all split points instead of randomly selecting one.
+      // todo: If randomly selecting one, the uniform process is unnecessary
 
       // Now let's figure out how that would change the overall entropy of the tree.
       for (int k = 0; k < histsPerClass.size(); k++) {
@@ -132,22 +136,109 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
       double newError = errorFunction.error();
 
       // If the new splitpoint improves upon the last, we keep it as the new best suggestion
-      if (newError < previousError) {
+      if (newError < previousError) { // TODO: Reject insignificant changes to the threshold (i.e. if delta >= 1e-6)
         bestFeature = overallAttIndex;
         bestThreshold = newSplitPoint;
+        bestLeftHistogram = errorFunction.getLeftEntropyHistogram().toClassHistogram();
+        bestRightHistogram = errorFunction.getRightEntropyHistogram().toClassHistogram();
         previousError = newError;
         changed = true;
       }
     }
-    // TODO: Do we only do this if we have made a change?
-    if (changed) {
-      leftHistogram = errorFunction.getLeftEntropyHistogram().toClassHistogram();
-      rightHistogram = errorFunction.getRightEntropyHistogram().toClassHistogram();
-    }
+
+    // TODO: Is this OK or do we need to recalculate these?
+    leftHistogram = bestLeftHistogram;
+    rightHistogram = bestRightHistogram;
+
     return changed;
   }
 
-  private MergeableHistogram mergeHists(List<MergeableHistogram> histList) {
+  // TODO: Assignment function duplicate code, could probably be done by passing setTemp/getTemp<Right/Left>
+  // todo: as lambdas, but this will do for now
+
+  public boolean findRightChildAssignment(ArrayList<DAGLearningNode> parentNodes, int childNodeCount) {
+    AssignmentEntropyErrorFunction errorFunction = new AssignmentEntropyErrorFunction(
+        parentNodes, this, childNodeCount);
+
+    errorFunction.initializeHistograms();
+
+    // Save the current selection
+    int selectedRight = getTempRight();
+
+    double oldEntropy = errorFunction.error();
+    double currentEntropy = 0;
+    boolean changed = false;
+
+    // Test all possible assignments for the right child
+    for (int curRight = 0; curRight < childNodeCount; curRight++) {
+      // Make a temp assignment of the right node
+      setTempRight(curRight);
+
+      // Get the error for this assignment
+      currentEntropy = errorFunction.error();
+
+      // If it's better than the current best, change the right temp node selection
+      if (currentEntropy < oldEntropy) {
+        selectedRight = curRight;
+        oldEntropy = currentEntropy;
+        changed = true;
+      }
+    }
+
+    setTempRight(selectedRight);
+
+    return changed;
+  }
+
+  public boolean findLeftChildAssignment(ArrayList<DAGLearningNode> parentNodes, int childNodeCount) {
+    AssignmentEntropyErrorFunction errorFunction = new AssignmentEntropyErrorFunction(
+        parentNodes, this, childNodeCount);
+
+    errorFunction.initializeHistograms();
+
+    // Save the current selection
+    int selectedLeft = getTempLeft();
+
+    double oldEntropy = errorFunction.error();
+    double currentEntropy = 0;
+    boolean changed = false;
+
+    // Test all possible assignments for the right child
+    for (int curleft = 0; curleft < childNodeCount; curleft++) {
+      // Make a temp assignment of the right node
+      setTempLeft(curleft);
+
+      // Get the error for this assignment
+      currentEntropy = errorFunction.error();
+
+      // If it's better than the current best, change the right temp node selection
+      if (currentEntropy < oldEntropy) {
+        selectedLeft = curleft;
+        oldEntropy = currentEntropy;
+        changed = true;
+      }
+    }
+
+    setTempLeft(selectedLeft);
+
+    return changed;
+  }
+
+
+  /**
+   * Reset's the node's histograms by clearing the left histogram, and the right histogram becoming the node's histogram.
+   */
+  private void resetLeftRightHistogram() {
+    // TODO: Ensure this works as expected
+    ClassHistogram nodeHist = getClassHistogram();
+
+    leftHistogram.reset();
+    rightHistogram.reset();
+    rightHistogram = rightHistogram.merge(nodeHist);
+  }
+
+  private static MergeableHistogram mergeHists(List<MergeableHistogram> histList) {
+    // TODO: Ensure this works as expected
     MergeableHistogram mergedHist = null;
     for (MergeableHistogram hist : histList) {
       if (mergedHist == null) {
@@ -196,17 +287,13 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
   }
 
   @Override
+  // TODO: This process has the issue: The decision to split a node
+  // ignores the distribution of the potential child's other parents.
   public AttributeSplitSuggestion[] getBestSplitSuggestions(
       SplitCriterion criterion, HoeffdingTree ht) {
-    List<AttributeSplitSuggestion> bestSuggestions = new LinkedList<AttributeSplitSuggestion>();
+    List<AttributeSplitSuggestion> bestSuggestions = new LinkedList<>();
     double[] preSplitDist = this.observedClassDistribution.getArrayCopy();
-    if (!ht.noPrePruneOption.isSet()) {
-      // add null split as an option
-      bestSuggestions.add(new AttributeSplitSuggestion(null,
-          new double[0][], criterion.getMeritOfSplit(
-          preSplitDist,
-          new double[][]{preSplitDist})));
-    }
+
     for (int i = 0; i < this.attributeObservers.size(); i++) {
       AttributeClassObserver obs = this.attributeObservers.get(i);
       if (obs != null) {
@@ -228,6 +315,14 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     return tempRight;
   }
 
+  public void setTempLeft(int tempLeft) {
+    this.tempLeft = tempLeft;
+  }
+
+  public void setTempRight(int tempRight) {
+    this.tempRight = tempRight;
+  }
+
   public ClassHistogram getLeftHistogram() {
     return leftHistogram;
   }
@@ -237,11 +332,18 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
   }
 
   public ClassHistogram getClassHistogram() {
-    AutoExpandVector<Integer> data = new AutoExpandVector<>(observedClassDistribution.numValues());
+    DefaultVector data = new DefaultVector(observedClassDistribution.numValues());
     for (int i = 0; i < data.size(); i++) {
-      data.set(i, (int) observedClassDistribution.getValue(i));
+      data.set(i, observedClassDistribution.getValue(i));
     }
     return new ClassHistogram(data);
   }
 
+  public int getBestFeature() {
+    return bestFeature;
+  }
+
+  public double getBestThreshold() {
+    return bestThreshold;
+  }
 }

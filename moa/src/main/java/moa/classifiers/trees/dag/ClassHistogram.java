@@ -25,31 +25,32 @@ import moa.core.Utils;
 import java.util.Collections;
 
 public class ClassHistogram {
-  // TODO: Add null pointer guards to all operations
-  AutoExpandVector<Integer> data;
+  // TODO: Do I still need the null guards now that resize and reset do proper init of elements to 0?
 
-  int mass = 0;
+  DefaultVector data;
+
+  double mass = 0;
 
   public ClassHistogram() {
-    data = new AutoExpandVector<>();
-    data.add(0, 0);
+    data = new DefaultVector();
+//    data.add(0, 0d);
   }
 
-  public ClassHistogram(AutoExpandVector<Integer> data) {
+  public ClassHistogram(DefaultVector data) {
     this.data = data;
-    this.mass = data.stream().mapToInt(Integer::intValue).sum();
+    this.mass = data.stream().mapToDouble(Double::doubleValue).sum();
   }
 
   public ClassHistogram(int bins) {
-    data = new AutoExpandVector<>(bins);
-    data.addAll((Collections.nCopies(bins == 0 ? 1 : bins, 0)));
+    data = new DefaultVector(bins);
+    data.addAll((Collections.nCopies(bins == 0 ? 1 : bins, 0d)));
   }
 
   /**
    * Increment the class count by one for the provided class index
    */
   public void addOne(int classIndex) {
-    Integer value = data.get(classIndex);
+    Double value = data.get(classIndex);
     data.set(classIndex,  value == null ? 0 : value + 1);
     mass++;
   }
@@ -58,7 +59,7 @@ public class ClassHistogram {
    * Decrement the class count by one for the provided class index
    */
   public void subOne(int classIndex) {
-    Integer value = data.get(classIndex);
+    Double value = data.get(classIndex);
     data.set(classIndex,  value == null ? 0 : value - 1);
     mass--;
   }
@@ -67,7 +68,7 @@ public class ClassHistogram {
    * Increment the class count for classIndex by the given value
    */
   public void add(int classIndex, int value) {
-    Integer prevValue = data.get(classIndex);
+    Double prevValue = data.get(classIndex);
     data.set(classIndex,  prevValue == null ? value : prevValue + value);
     mass += value;
   }
@@ -78,37 +79,95 @@ public class ClassHistogram {
    * @param classIndex The bin we wish to change
    * @param value The value the bin should have
    */
-  public void set(int classIndex, int value) {
+  public void set(int classIndex, double value) {
     mass -= data.get(classIndex) == null ? 0 : data.get(classIndex);
     data.set(classIndex, value);
     mass += value;
   }
 
   public void resize(int classCount) {
-    data = new AutoExpandVector<>(classCount);
+    data = new DefaultVector(classCount);
+    data.addAll((Collections.nCopies(classCount, 0d)));
     mass = 0;
   }
 
   public void reset() {
-    data = new AutoExpandVector<>(data.size());
+    int curLength = data.size();
+    data = new DefaultVector(curLength);
+    data.addAll((Collections.nCopies(curLength, 0d)));
     mass = 0;
   }
 
   /**
-   * Calculates the merged histogram of this and other, returns a new object.
+   * Calculates the merged histogram of this and other, returns the merged histogram as a new object.
+   * The current histogram is NOT modified!
    * @param other
-   * @return
+   * @return A new ClassHistogram object that represents the merging of this and other.
    */
   public ClassHistogram merge(ClassHistogram other) {
-    AutoExpandVector<Integer> merged = new AutoExpandVector<>(data.size());
-    for (int i = 0; i < data.size(); i++) {
+    // TODO: Decide whether I want an in-place version of this as well.
+    DefaultVector merged = new DefaultVector(Math.max(data.size(), other.data.size()));
+    for (int i = 0; i < Math.max(data.size(), other.data.size()); i++) {
       merged.set(i, data.get(i) + other.data.get(i));
     }
     return new ClassHistogram(merged);
   }
 
+  public double calculateEntropy() {
+    if (mass < 1) return 0;
+
+    double entropy = 0;
+
+    for (int i = 0; i < data.size(); i++)
+    {
+      // Empty bins do not contribute anything
+      if (data.get(i) > 0)
+      {
+        entropy += entropy(data.get(i)/mass);
+      }
+    }
+    return entropy;
+  }
+
+  public double calculateCombinedEntropy(ClassHistogram other) {
+    assert this.data.size() == other.data.size() : "Cannot combine histograms of different length!";
+
+    double sum = this.mass + other.mass;
+
+    if (sum < 1) {
+      return 0;
+    }
+
+    double entropySum = 0;
+    double numerator = 0;
+
+    for (int i = 0; i < data.size(); i++) {
+      // Empty bins do not contribute anything
+      numerator = data.get(i) + other.data.get(i);
+      if (numerator > 0) {
+        entropySum += entropy(numerator / sum);
+      }
+    }
+
+    return entropySum;
+  }
+
+  public double[] toArray() {
+    double[] out = new double[data.size()];
+    for (int i = 0; i < out.length; i++) {
+      out[i] = data.get(i);
+    }
+
+    return out;
+  }
+
+
   public double getMass() {
     return mass;
+  }
+
+  protected double entropy(double p) {
+    return -p * Utils.log2(p);
   }
 }
 
@@ -131,7 +190,7 @@ class EntropyHistogram extends ClassHistogram {
   }
 
   @Override
-  public void set(int classIndex, int value) {
+  public void set(int classIndex, double value) {
     super.set(classIndex, value);
     recalculateEntropies();
   }
@@ -158,10 +217,6 @@ class EntropyHistogram extends ClassHistogram {
     totalEntropy -= entropies.get(classIndex);
     entropies.set(classIndex, data.get(classIndex) < 1 ? 0 : entropy(data.get(classIndex)));
     totalEntropy += entropies.get(classIndex);
-  }
-
-  private double entropy(double p) {
-    return -p * Utils.log2(p);
   }
 
   private void recalculateEntropies() {

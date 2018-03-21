@@ -24,10 +24,10 @@ import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.core.AttributeSplitSuggestion;
 import moa.classifiers.core.attributeclassobservers.AttributeClassObserver;
 import moa.classifiers.core.attributeclassobservers.SPDTNumericClassObserver;
-import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
+import moa.classifiers.core.conditionaltests.NumericAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
-import moa.classifiers.trees.HoeffdingTree;
 import moa.classifiers.trees.RandomHoeffdingTree;
+import moa.core.AutoExpandVector;
 
 import java.util.*;
 
@@ -39,18 +39,22 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
   public int numSplitPoints = 10; // TODO: Add as option
   private int maxLevel = 10;
   private int maxWidth = 256;
-  private int maxIterations = 10;
-  private int maxBins = 50; // From SPDT paper
-  private boolean useOldBestSplit = true;
+  private int maxIterations = 1;
+  private int maxBins = 64;
+  private int currentLevel = 0;
+  private int weightSinceLastLevel = 0;
+
+  Set<ActiveLearningNode> readyNodes = new HashSet<>();
+
   SplitCriterion activeSplitCriterion;
 
   // tvas: This could perhaps be tied into the nodes themselves, but let's try it this way first
-  int readyToSplit; // Keeps count of how many nodes are ready to split at the current learning row
-  ArrayList<DAGLearningNode> learningRow; // All the learning nodes at the current bottom level of the DAG
+  private int readyToSplit; // Keeps count of how many nodes are ready to split at the current learning row
+  private ArrayList<DAGLearningNode> learningRow; // All the learning nodes at the current bottom level of the DAG
   // tvas: This map is a temp solution.
   // 1: We prolly want to update the best suggestion anyway
   // 2: I don't like mapping from node to attribute suggestion
-  HashMap<ActiveLearningNode, AttributeSplitSuggestion> nodeToSplitSuggestion;
+  private HashMap<ActiveLearningNode, AttributeSplitSuggestion> nodeToSplitSuggestion;
 
 
   @Override
@@ -65,6 +69,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
   @Override
   public void trainOnInstanceImpl(Instance inst) {
+    weightSinceLastLevel++;
     if (this.treeRoot == null) {
       this.treeRoot = newLearningNode();
       learningRow.add((DAGLearningNode) this.treeRoot);
@@ -72,11 +77,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     }
     FoundNode foundNode = this.treeRoot.filterInstanceToLeaf(inst, null, -1);
     Node leafNode = foundNode.node;
-    if (leafNode == null) {
-      leafNode = newLearningNode();
-      foundNode.parent.setChild(foundNode.parentBranch, leafNode);
-      this.activeLeafNodeCount++;
-    }
+
     if (leafNode instanceof LearningNode) {
       LearningNode learningNode = (LearningNode) leafNode;
 
@@ -88,16 +89,15 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
         if (weightSeen - activeLearningNode.getWeightSeenAtLastSplitEvaluation() >= this.gracePeriodOption.getValue()) {
           Optional<AttributeSplitSuggestion> bestSplitOptional = ((DAGLearningNode) activeLearningNode).checkForSplit() ;
           if (bestSplitOptional.isPresent()) {
-            readyToSplit += 1;
-            nodeToSplitSuggestion.put(activeLearningNode, bestSplitOptional.get());
+            readyNodes.add(activeLearningNode);
           }
-//          attemptToSplit(activeLearningNode, foundNode.parent, foundNode.parentBranch);
+
           // tvas: When should we instantiate the next level of nodes?
-          if (readyToSplit / learningRow.size() > 0.5) { // TODO: Placeholder, need to find a reasonable criterion!!
+          if (readyNodes.size() / learningRow.size() > 0.5 || weightSinceLastLevel > 25000) { // TODO: Placeholder, need to find a reasonable criterion!!
+            weightSinceLastLevel = 0;
+            readyNodes.clear();
             splitLearningRow();
-            readyToSplit = 0;
           }
-          activeLearningNode.setWeightSeenAtLastSplitEvaluation(weightSeen);
         }
       }
     }
@@ -108,19 +108,117 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
   }
 
   private void splitLearningRow() { //TODO: Do I want the parent row and child count as arguments here?
-
+    System.out.println("Splitting level: " + currentLevel++);
+    System.out.println("Level leafs: " + learningRow.size());
     int iterations = 0;
     boolean change = false;
+    int numChildren = (int) Math.max(learningRow.size() * growthRate.getValue(), 2); // At least two children for root
+    boolean isTreeLevel = numChildren == learningRow.size() * 2;
+    // TODO: Handle pure nodes: They don't need threshold, and should have left == right child
+
+    // TODO: Sort the learning row decreasing by their entropy
+
+    // Initialize new level
+    // Do a base assignment of children to parent nodes
+    int vChildren = 0;
+    for (DAGLearningNode dagNode : learningRow) {
+      // TODO: C++ does this assignment in reverse, why? --> Explained in 3.1.1: high entropy parents should not have common children
+      dagNode.setTempLeft(vChildren++ % numChildren);
+      dagNode.setTempRight(vChildren++ % numChildren);
+    }
+
+
     do {
-      // Find threshold
-      for (Node node : learningRow) {
-        DAGLearningNode dagNode = (DAGLearningNode) node;
-        change = dagNode.findThreshold(learningRow);
+      // Find best feature/threshold for each node
+      for (DAGLearningNode dagNode : learningRow) {
+        if (dagNode.findThreshold(learningRow)) {
+          change = true;
+        }
       }
-      // Find best assignment
-      // TODO
+      // If this level is a tree level, the child assignments need no change, so we can break.
+      if (isTreeLevel) {
+        break;
+      }
+      // Find best assignment of children for each node
+      for (DAGLearningNode dagNode : learningRow) {
+        if (dagNode.findRightChildAssignment(learningRow, numChildren)) {
+          change = true;
+        }
+        if (dagNode.findLeftChildAssignment(learningRow, numChildren)) {
+          change = true;
+        }
+      }
+      iterations++;
     } while (iterations < maxIterations && change);
 
+    // TODO: Check if adding the new row improves the overall tree entropy. If not, don't create the row
+
+    // Create the child nodes
+    AutoExpandVector<DAGLearningNode> childNodes = new AutoExpandVector<>(numChildren);
+    // Keep track of children without any parents assigned
+    boolean[] noParentNode = new boolean[numChildren];
+    Arrays.fill(noParentNode, true);
+
+    // Assign each parent to their child nodes
+    for (DAGLearningNode current : learningRow) {
+      int leftNodeIndex = current.getTempLeft();
+      int rightNodeIndex = current.getTempRight();
+
+      // Create a new split node based on the current parent
+      NumericAttributeBinaryTest attTest = new NumericAttributeBinaryTest(
+          current.getBestFeature(), current.getBestThreshold(), true);
+      SplitNode splitNode = newSplitNode(attTest, current.getObservedClassDistribution(), 2);
+
+      // Get the (potentially) existing left and right child nodes and update their dists as necessary
+      DAGLearningNode leftChild = childNodes.get(leftNodeIndex);
+      leftChild = createNodeFromExisting(leftChild, current.getLeftHistogram().toArray());
+      DAGLearningNode rightChild = childNodes.get(rightNodeIndex);
+      rightChild = createNodeFromExisting(rightChild, current.getRightHistogram().toArray());
+      // Update the collection of child nodes, this way we can retrieve and update them later
+      childNodes.set(leftNodeIndex, leftChild);
+      childNodes.set(rightNodeIndex, rightChild);
+      // Set the created child nodes as the split node's children
+      splitNode.setChild(0, leftChild);
+      splitNode.setChild(1, rightChild);
+      noParentNode[leftNodeIndex] = false;
+      noParentNode[rightNodeIndex] = false;
+      if (treeRoot == current) {
+        treeRoot = splitNode;
+      }
+    }
+
+    // tvas: There's a chance a threshold is selected s.t. no points reach one of the children.
+    // We might want to merge the children in that case
+
+    // Replace the current learning row with the newly created child nodes.
+    activeLeafNodeCount = numChildren;
+    decisionNodeCount += learningRow.size();
+    learningRow.clear();
+    for (int i = 0; i < numChildren; i++) {
+      if (!noParentNode[i]) {
+        // Children with no parents should drop off and be GCed.
+        // tvas: How to verify? Any chance of lingering pointers?
+        // TODO: The get here might be problematic, because the indicies for learningRow are given by the
+        // current.getTempLeft/Right need to ensure those are [0, numChildren - 1] as well
+        learningRow.add(childNodes.get(i));
+      }
+    }
+
+  }
+
+  private DAGLearningNode createNodeFromExisting(DAGLearningNode existingChild, double[] currentDistribution) {
+    double[] combinedDistribution;
+    if (existingChild == null) {
+      combinedDistribution = currentDistribution;
+    } else {
+      double[] previousDistribution = existingChild.getObservedClassDistribution();
+      assert previousDistribution.length == currentDistribution.length;
+      combinedDistribution = new double[previousDistribution.length];
+      for (int i = 0; i < previousDistribution.length; i++) {
+        combinedDistribution[i] = previousDistribution[i] + currentDistribution[i];
+      }
+    }
+    return new DAGLearningNode(combinedDistribution,this);
   }
 
   public AttributeSplitSuggestion[] getSplitSuggestions(ActiveLearningNode node) {
