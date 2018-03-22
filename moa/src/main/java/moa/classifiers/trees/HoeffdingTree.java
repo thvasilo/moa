@@ -542,14 +542,12 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
         if (leafNode instanceof LearningNode) {
             LearningNode learningNode = (LearningNode) leafNode;
             learningNode.learnFromInstance(inst, this);
-            if (this.growthAllowed
-                    && (learningNode instanceof ActiveLearningNode)) {
+            if (this.growthAllowed && (learningNode instanceof ActiveLearningNode)) {
                 ActiveLearningNode activeLearningNode = (ActiveLearningNode) learningNode;
                 double weightSeen = activeLearningNode.getWeightSeen();
-                if (weightSeen
-                        - activeLearningNode.getWeightSeenAtLastSplitEvaluation() >= this.gracePeriodOption.getValue()) {
-                    attemptToSplit(activeLearningNode, foundNode.parent,
-                            foundNode.parentBranch);
+
+                if (weightSeen - activeLearningNode.getWeightSeenAtLastSplitEvaluation() >= gracePeriodOption.getValue()) {
+                    attemptToSplit(activeLearningNode, foundNode.parent, foundNode.parentBranch);
                     activeLearningNode.setWeightSeenAtLastSplitEvaluation(weightSeen);
                 }
             }

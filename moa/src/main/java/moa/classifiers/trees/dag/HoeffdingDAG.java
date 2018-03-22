@@ -87,11 +87,11 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
         double weightSeen = activeLearningNode.getWeightSeen();
 
         if (weightSeen - activeLearningNode.getWeightSeenAtLastSplitEvaluation() >= this.gracePeriodOption.getValue()) {
-          Optional<AttributeSplitSuggestion> bestSplitOptional = ((DAGLearningNode) activeLearningNode).checkForSplit() ;
+          Optional<AttributeSplitSuggestion> bestSplitOptional = ((DAGLearningNode) activeLearningNode).checkForSplit();
+          activeLearningNode.setWeightSeenAtLastSplitEvaluation(weightSeen);
           if (bestSplitOptional.isPresent()) {
             readyNodes.add(activeLearningNode);
           }
-
           // tvas: When should we instantiate the next level of nodes?
           if (readyNodes.size() / learningRow.size() > 0.5 || weightSinceLastLevel > 25000) { // TODO: Placeholder, need to find a reasonable criterion!!
             weightSinceLastLevel = 0;
@@ -114,23 +114,44 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     boolean change = false;
     int numChildren = (int) Math.max(learningRow.size() * growthRate.getValue(), 2); // At least two children for root
     boolean isTreeLevel = numChildren == learningRow.size() * 2;
-    // TODO: Handle pure nodes: They don't need threshold, and should have left == right child
-
-    // TODO: Sort the learning row decreasing by their entropy
+    // TODO: Sort the learning row decreasing by their entropy, iterate in that order
 
     // Initialize new level
-    // Do a base assignment of children to parent nodes
+    // Do an initial assignment of children to parent nodes
     int vChildren = 0;
     for (DAGLearningNode dagNode : learningRow) {
+      if (dagNode.getBestFeature() == -1) {
+        if (dagNode.observedClassDistributionIsPure()) {
+          dagNode.setBestFeature(0);
+        } else {
+          dagNode.findThreshold(learningRow);
+        }
+        assert dagNode.getBestFeature() != -1;
+      }
+      dagNode.updateLeftRightHistogram(); // TODO: Necessary?
       // TODO: C++ does this assignment in reverse, why? --> Explained in 3.1.1: high entropy parents should not have common children
-      dagNode.setTempLeft(vChildren++ % numChildren);
-      dagNode.setTempRight(vChildren++ % numChildren);
-    }
+      if (dagNode.observedClassDistributionIsPure()) {
+        // We assign both child pointers to one node
+        dagNode.setTempLeft(vChildren % numChildren);
+        dagNode.setTempRight(vChildren++ % numChildren);
+      } else {
+        dagNode.setTempLeft(vChildren++ % numChildren);
+        dagNode.setTempRight(vChildren++ % numChildren);
+      }
 
+    }
 
     do {
       // Find best feature/threshold for each node
       for (DAGLearningNode dagNode : learningRow) {
+        // The thresholds are optimized for the first time during initialization (if bestFeature == -1)
+        if (iterations == 0 && !(dagNode.getBestFeature() == -1)) {
+          break;
+        }
+        if (dagNode.observedClassDistributionIsPure()) {
+          // Pure nodes don't need a threshold
+          continue;
+        }
         if (dagNode.findThreshold(learningRow)) {
           change = true;
         }
@@ -141,12 +162,21 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       }
       // Find best assignment of children for each node
       for (DAGLearningNode dagNode : learningRow) {
-        if (dagNode.findRightChildAssignment(learningRow, numChildren)) {
-          change = true;
+        if (dagNode.observedClassDistributionIsPure()) {
+          // Find optimal child assignment for both pointers
+          if (dagNode.findCoherentChildNodeAssignment(learningRow, numChildren)) {
+            change = true;
+          }
+        } else {
+          if (dagNode.findRightChildAssignment(learningRow, numChildren)) {
+            change = true;
+          }
+          if (dagNode.findLeftChildAssignment(learningRow, numChildren)) {
+            change = true;
+          }
         }
-        if (dagNode.findLeftChildAssignment(learningRow, numChildren)) {
-          change = true;
-        }
+
+
       }
       iterations++;
     } while (iterations < maxIterations && change);
@@ -167,6 +197,10 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       // Create a new split node based on the current parent
       NumericAttributeBinaryTest attTest = new NumericAttributeBinaryTest(
           current.getBestFeature(), current.getBestThreshold(), true);
+      if (current.observedClassDistributionIsPure()) {
+        System.out.println("Splitting a node with a pure distribution:");
+        System.out.println("Node " + current.hashCode() + ": " + Arrays.toString(current.getObservedClassDistribution()));
+      }
       SplitNode splitNode = newSplitNode(attTest, current.getObservedClassDistribution(), 2);
 
       // Get the (potentially) existing left and right child nodes and update their dists as necessary
@@ -180,6 +214,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       // Set the created child nodes as the split node's children
       splitNode.setChild(0, leftChild);
       splitNode.setChild(1, rightChild);
+
       noParentNode[leftNodeIndex] = false;
       noParentNode[rightNodeIndex] = false;
       if (treeRoot == current) {
@@ -196,8 +231,6 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     learningRow.clear();
     for (int i = 0; i < numChildren; i++) {
       if (!noParentNode[i]) {
-        // Children with no parents should drop off and be GCed.
-        // tvas: How to verify? Any chance of lingering pointers?
         // TODO: The get here might be problematic, because the indicies for learningRow are given by the
         // current.getTempLeft/Right need to ensure those are [0, numChildren - 1] as well
         learningRow.add(childNodes.get(i));
@@ -207,19 +240,19 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
   }
 
   private DAGLearningNode createNodeFromExisting(DAGLearningNode existingChild, double[] currentDistribution) {
-    double[] combinedDistribution;
-    if (existingChild == null) {
-      combinedDistribution = currentDistribution;
-    } else {
-      double[] previousDistribution = existingChild.getObservedClassDistribution();
-      assert previousDistribution.length == currentDistribution.length;
-      combinedDistribution = new double[previousDistribution.length];
-      for (int i = 0; i < previousDistribution.length; i++) {
-        combinedDistribution[i] = previousDistribution[i] + currentDistribution[i];
-      }
-    }
-    // TODO: Checking what happens if we don't init dists
+    // TODO: Ignoring the histograms for now to check what happens if we don't init dists. FIX
     return new DAGLearningNode(new double[currentDistribution.length],this);
+//    double[] combinedDistribution;
+//    if (existingChild == null) {
+//      combinedDistribution = currentDistribution;
+//    } else {
+//      double[] previousDistribution = existingChild.getObservedClassDistribution();
+//      assert previousDistribution.length == currentDistribution.length;
+//      combinedDistribution = new double[previousDistribution.length];
+//      for (int i = 0; i < previousDistribution.length; i++) {
+//        combinedDistribution[i] = previousDistribution[i] + currentDistribution[i];
+//      }
+//    }
   }
 
   public AttributeSplitSuggestion[] getSplitSuggestions(ActiveLearningNode node) {

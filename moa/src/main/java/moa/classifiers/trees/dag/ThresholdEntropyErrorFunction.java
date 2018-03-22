@@ -69,8 +69,8 @@ public class ThresholdEntropyErrorFunction {
       ClassHistogram otherLeftHistogram = otherParent.getLeftHistogram();
       ClassHistogram otherRightHistogram = otherParent.getRightHistogram();
 
-      // We iterate though all the child nodes, if one of the childs of the other parents has the current parent
-      // as a parent as well, we add the hisstograms of those parents to the total.
+      // We iterate though all the child nodes, if one of the children of the other parents has the current parent
+      // as a parent as well, we add the histograms of those parents to the total.
       if (leftNode == otherParent.getTempLeft()) {
         // Current's left child is other's left child as well
         leftHistogram = leftHistogram.merge(otherLeftHistogram);
@@ -89,7 +89,7 @@ public class ThresholdEntropyErrorFunction {
       }
     }
 
-    // Compute the current histograms for nodes that are children of the current parent (?)
+    // Compute the current histograms for nodes that are children of the current parent
     leftEntropyHistogram = new EntropyHistogram(leftHistogram.merge(currentParent.getLeftHistogram()));
     rightEntropyHistogram = new EntropyHistogram(rightHistogram.merge(currentParent.getRightHistogram()));
   }
@@ -106,8 +106,9 @@ public class ThresholdEntropyErrorFunction {
    */
   public double error()
   {
-    return  1/(leftEntropyHistogram.getMass() + rightEntropyHistogram.getMass()) *
+    double calculatedEntropy = 1/(leftEntropyHistogram.getMass() + rightEntropyHistogram.getMass()) *
         (leftEntropyHistogram.entropy() + rightEntropyHistogram.entropy());
+    return Double.isNaN(calculatedEntropy) ? Double.MAX_VALUE : calculatedEntropy;
   }
 
   public double error(boolean recalculateEntropies) {

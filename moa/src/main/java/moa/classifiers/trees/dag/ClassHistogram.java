@@ -86,14 +86,14 @@ public class ClassHistogram {
   }
 
   public void resize(int classCount) {
-    data = new DefaultVector(classCount);
+    data.clear();
     data.addAll((Collections.nCopies(classCount, 0d)));
     mass = 0;
   }
 
   public void reset() {
     int curLength = data.size();
-    data = new DefaultVector(curLength);
+    data.clear();
     data.addAll((Collections.nCopies(curLength, 0d)));
     mass = 0;
   }
@@ -129,10 +129,13 @@ public class ClassHistogram {
     return entropy;
   }
 
-  public double calculateCombinedEntropy(ClassHistogram other) {
-    assert this.data.size() == other.data.size() : "Cannot combine histograms of different length!";
+  public static double calculateCombinedEntropy(ClassHistogram ... histograms) {
 
-    double sum = this.mass + other.mass;
+
+    double sum = 0;
+    for (ClassHistogram hist : histograms) {
+      sum += hist.mass;
+    }
 
     if (sum < 1) {
       return 0;
@@ -141,9 +144,12 @@ public class ClassHistogram {
     double entropySum = 0;
     double numerator = 0;
 
-    for (int i = 0; i < data.size(); i++) {
+    for (int i = 0; i < histograms[0].data.size(); i++) {
       // Empty bins do not contribute anything
-      numerator = data.get(i) + other.data.get(i);
+      numerator = 0;
+      for (ClassHistogram hist : histograms) {
+        numerator += hist.data.get(i);
+      }
       if (numerator > 0) {
         entropySum += entropy(numerator / sum);
       }
@@ -166,7 +172,7 @@ public class ClassHistogram {
     return mass;
   }
 
-  protected double entropy(double p) {
+  protected static double entropy(double p) {
     return -p * Utils.log2(p);
   }
 }

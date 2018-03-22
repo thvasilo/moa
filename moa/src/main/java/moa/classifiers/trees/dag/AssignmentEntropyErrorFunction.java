@@ -95,7 +95,7 @@ public class AssignmentEntropyErrorFunction {
         ClassHistogram leftHistogram = currentParent.getLeftHistogram();
         // The the current parent contributes entropy according to its left histogram
         errorSum += (leftHistogram.getMass() + histograms[i].getMass())/dataCount *
-            leftHistogram.calculateCombinedEntropy(histograms[i]);
+            ClassHistogram.calculateCombinedEntropy(leftHistogram, histograms[i]);
       }
       // If the child is the right child and not the left child of the current parent
       else if (i == currentParent.getTempRight() && i != currentParent.getTempLeft())
@@ -103,17 +103,18 @@ public class AssignmentEntropyErrorFunction {
         ClassHistogram rightHistogram = currentParent.getRightHistogram();
 
         errorSum += (rightHistogram.getMass() + histograms[i].getMass())/dataCount *
-            rightHistogram.calculateCombinedEntropy(histograms[i]);
+            ClassHistogram.calculateCombinedEntropy(rightHistogram, histograms[i]);
       }
       // If the child is the left child and the right child of the current parent. Happens when we have pure nodes
-      // TODO: Handle pure node case
-//      else if (i == currentParent.getTempRight() && i == currentParent.getTempLeft())
-//      {
-//        ClassHistogram leftHistogram = currentParent.getLeftHistogram();
-//        ClassHistogram rightHistogram = currentParent.getRightHistogram();
-//
-//        error += rightHistogram.getMass(histograms[i], *leftHistogram)/dataCount * rightHistogram->entropy(histograms[i], *leftHistogram);
-//      }
+      else if (i == currentParent.getTempRight() && i == currentParent.getTempLeft())
+      {
+        ClassHistogram leftHistogram = currentParent.getLeftHistogram();
+        ClassHistogram rightHistogram = currentParent.getRightHistogram();
+
+        double totalMass = rightHistogram.getMass() + histograms[i].getMass() + leftHistogram.getMass();
+        errorSum += totalMass/dataCount * ClassHistogram.calculateCombinedEntropy(
+            rightHistogram, leftHistogram, histograms[i]);
+      }
       else
       {
         errorSum += histograms[i].getMass()/dataCount * entropies[i];
