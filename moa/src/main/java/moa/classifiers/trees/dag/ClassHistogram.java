@@ -192,7 +192,6 @@ class EntropyHistogram extends ClassHistogram {
   @Override
   public void set(int classIndex, double value) {
     super.set(classIndex, value);
-    recalculateEntropies();
   }
 
   @Override
@@ -219,7 +218,7 @@ class EntropyHistogram extends ClassHistogram {
     totalEntropy += entropies.get(classIndex);
   }
 
-  private void recalculateEntropies() {
+  public void recalculateEntropies() {
     if (getMass() < 1)
     {
       totalEntropy = 0;

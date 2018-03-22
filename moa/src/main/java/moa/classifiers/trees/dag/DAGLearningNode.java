@@ -104,9 +104,6 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     // Iterate over all sampled features to see if a better feature/threshold combination exists
     for (int localAttIndex = 0; localAttIndex < this.numAttributes - 1; localAttIndex++) {
       int overallAttIndex = this.listAttributes[localAttIndex];
-      // tvas: To get a first working version we will select a threshold randomly within the observed values
-      // todo: later we'll need to optimize the threshold selection
-
       // To get candidate split points, we get the overall distribution of the attribute
       // disreagarding the class, and create a uniform histogram out of that.
       // The bin borders give us the candidate split points. See SPDT Sec. 2.2.
@@ -115,34 +112,34 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
       MergeableHistogram mergedHists = mergeHists(histsPerClass);
       double[] splitPoints = mergedHists.uniform(tree.numSplitPoints);
 
-      // Select a single random split point
-      double newSplitPoint = splitPoints[ThreadLocalRandom.current().nextInt(splitPoints.length)];
-      // TODO: Iterate over all split points instead of randomly selecting one.
-      // todo: If randomly selecting one, the uniform process is unnecessary
+      // Iterate through the possible split points
+      for (double newSplitPoint : splitPoints) { // tvas: Pretty sure this could be done in parallel if careful with histograms
+        // Now let's figure out how that would change the overall entropy of the tree.
+        for (int k = 0; k < histsPerClass.size(); k++) {
+          // For each class, get the new number of points at each side of the split
+          MergeableHistogram classHist = histsPerClass.get(k);
+          double samplesLeft = classHist.getSum(newSplitPoint);
+          double samplesRight = classHist.getTotalCount() - samplesLeft;
+          // Update the class histogram counts. NB: entropies are not re-calculated until the call to error(true) below
+          errorFunction.setClassCounts(k, (int) samplesLeft, (int) samplesRight); // TODO: Counts should be doubles
+        }
 
-      // Now let's figure out how that would change the overall entropy of the tree.
-      for (int k = 0; k < histsPerClass.size(); k++) {
-        // For each class, get the new number of points at each side of the split
-        MergeableHistogram classHist = histsPerClass.get(k);
-        double samplesLeft = classHist.getSum(newSplitPoint);
-        double samplesRight = classHist.getTotalCount() - samplesLeft;
-        // TODO: Currently set will re-calculate entropies for every call (every class)
-        // todo: I think it would be enough to only do that once at the end of this loop
-        // Update the class histogram counts, and the entropies
-        errorFunction.setClassCounts(k, (int) samplesLeft, (int) samplesRight); // TODO: Counts should be doubles
-      }
+        // Now let's recalculate the error/entropy
+        double newError = errorFunction.error(true);
 
-      // Now let's recalculate the error/entropy
-      double newError = errorFunction.error();
-
-      // If the new splitpoint improves upon the last, we keep it as the new best suggestion
-      if (newError < previousError) { // TODO: Reject insignificant changes to the threshold (i.e. if delta >= 1e-6)
-        bestFeature = overallAttIndex;
-        bestThreshold = newSplitPoint;
-        bestLeftHistogram = errorFunction.getLeftEntropyHistogram().toClassHistogram();
-        bestRightHistogram = errorFunction.getRightEntropyHistogram().toClassHistogram();
-        previousError = newError;
-        changed = true;
+        // If the new splitpoint is not almost equal and improves upon the last error, make it the new best suggestion
+        boolean changeSignificant = true;
+        if (overallAttIndex == bestFeature && Math.abs(newSplitPoint - bestThreshold) <= 1e-6) {
+          changeSignificant = false;
+        }
+        if (newError < previousError && changeSignificant) {
+          bestFeature = overallAttIndex;
+          bestThreshold = newSplitPoint;
+          bestLeftHistogram = errorFunction.getLeftEntropyHistogram().toClassHistogram();
+          bestRightHistogram = errorFunction.getRightEntropyHistogram().toClassHistogram();
+          previousError = newError;
+          changed = true;
+        }
       }
     }
 

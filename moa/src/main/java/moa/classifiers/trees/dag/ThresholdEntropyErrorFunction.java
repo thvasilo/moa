@@ -110,6 +110,14 @@ public class ThresholdEntropyErrorFunction {
         (leftEntropyHistogram.entropy() + rightEntropyHistogram.entropy());
   }
 
+  public double error(boolean recalculateEntropies) {
+    if (recalculateEntropies) {
+      leftEntropyHistogram.recalculateEntropies();
+      rightEntropyHistogram.recalculateEntropies();
+    }
+    return error();
+  }
+
   /**
    * Moves one training example from the right to the left histogram
    */
