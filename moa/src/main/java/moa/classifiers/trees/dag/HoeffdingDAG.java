@@ -218,7 +218,8 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
         combinedDistribution[i] = previousDistribution[i] + currentDistribution[i];
       }
     }
-    return new DAGLearningNode(combinedDistribution,this);
+    // TODO: Checking what happens if we don't init dists
+    return new DAGLearningNode(new double[currentDistribution.length],this);
   }
 
   public AttributeSplitSuggestion[] getSplitSuggestions(ActiveLearningNode node) {

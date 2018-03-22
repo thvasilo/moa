@@ -157,7 +157,7 @@ public class EvaluatePrequential extends ClassificationMainTask {
             try {
                 if (dumpFile.exists()) {
                     immediateResultStream = new PrintStream(
-                            new FileOutputStream(dumpFile, true), true);
+                            new FileOutputStream(dumpFile, false), true);
                 } else {
                     immediateResultStream = new PrintStream(
                             new FileOutputStream(dumpFile), true);
@@ -174,7 +174,7 @@ public class EvaluatePrequential extends ClassificationMainTask {
             try {
                 if (outputPredictionFile.exists()) {
                     outputPredictionResultStream = new PrintStream(
-                            new FileOutputStream(outputPredictionFile, true), true);
+                            new FileOutputStream(outputPredictionFile, false), true);
                 } else {
                     outputPredictionResultStream = new PrintStream(
                             new FileOutputStream(outputPredictionFile), true);
