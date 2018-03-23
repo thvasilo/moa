@@ -37,6 +37,10 @@ public class SPDTHistogram implements MergeableHistogram<SPDTHistogram> {
     histogram = new Histogram<>(numBins);
   }
 
+  public SPDTHistogram() {
+    histogram = new Histogram<>(0);
+  }
+
   @Override
   public void update(Double value) {
     try {
@@ -50,7 +54,9 @@ public class SPDTHistogram implements MergeableHistogram<SPDTHistogram> {
   public SPDTHistogram merge(SPDTHistogram other) {
     try {
       // TODO: The merge will affect the internal state of the histogram, do we want that?
-      histogram.merge(other.histogram);
+      if (other != null) {
+        histogram.merge(other.histogram); // TODO: Not sure if this null "avoidance" is what we want to have. Is it ok to ignore nulls?
+      }
     } catch (MixedInsertException e) {
       e.printStackTrace();
     }

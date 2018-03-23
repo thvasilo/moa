@@ -28,6 +28,7 @@ import moa.classifiers.core.conditionaltests.NumericAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
 import moa.classifiers.trees.RandomHoeffdingTree;
 import moa.core.AutoExpandVector;
+import org.apache.commons.math3.util.Pair;
 
 import java.util.*;
 
@@ -36,33 +37,31 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       'u', "The rate at which we allow DAG width levels to grow. 2 is equivalent to a tree.",
       1.5, 1.0 + Double.MIN_VALUE, 2.0);
 
-  public int numSplitPoints = 10; // TODO: Add as option
+  // Enum to keep track of which branch of parent a child belongs to
+  public enum Branch {
+    LEFT, RIGHT, NULL
+  }
+  // TODO: Add as options
+  public int numSplitPoints = 10;
   private int maxLevel = 10;
   private int maxWidth = 256;
-  private int maxIterations = 1;
+  private int maxIterations = 100;
   private int maxBins = 64;
+
   private int currentLevel = 0;
   private int weightSinceLastLevel = 0;
 
-  Set<ActiveLearningNode> readyNodes = new HashSet<>();
+  private Set<ActiveLearningNode> readyNodes = new HashSet<>();
 
   SplitCriterion activeSplitCriterion;
 
-  // tvas: This could perhaps be tied into the nodes themselves, but let's try it this way first
-  private int readyToSplit; // Keeps count of how many nodes are ready to split at the current learning row
   private ArrayList<DAGLearningNode> learningRow; // All the learning nodes at the current bottom level of the DAG
-  // tvas: This map is a temp solution.
-  // 1: We prolly want to update the best suggestion anyway
-  // 2: I don't like mapping from node to attribute suggestion
-  private HashMap<ActiveLearningNode, AttributeSplitSuggestion> nodeToSplitSuggestion;
 
 
   @Override
   public void resetLearningImpl() {
     super.resetLearningImpl();
     learningRow = new ArrayList<>();
-    nodeToSplitSuggestion = new HashMap<>();
-    readyToSplit = 0;
     this.binarySplitsOption.setValue(true);
     activeSplitCriterion = (SplitCriterion) getPreparedClassOption(this.splitCriterionOption);
   }
@@ -71,7 +70,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
   public void trainOnInstanceImpl(Instance inst) {
     weightSinceLastLevel++;
     if (this.treeRoot == null) {
-      this.treeRoot = newLearningNode();
+      this.treeRoot = new DAGLearningNode(new double[0], this, null, Branch.NULL);
       learningRow.add((DAGLearningNode) this.treeRoot);
       this.activeLeafNodeCount = 1;
     }
@@ -93,7 +92,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
             readyNodes.add(activeLearningNode);
           }
           // tvas: When should we instantiate the next level of nodes?
-          if (readyNodes.size() / learningRow.size() > 0.5 || weightSinceLastLevel > 25000) { // TODO: Placeholder, need to find a reasonable criterion!!
+          if (readyNodes.size() / learningRow.size() > 0.5) { // TODO: Placeholder, need to find a reasonable criterion!!
             weightSinceLastLevel = 0;
             readyNodes.clear();
             splitLearningRow();
@@ -107,11 +106,16 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     }
   }
 
+//  private void optimizeLevel(ArrayList<DAGLearningNode> row, int maxIterations) {
+//    // TODO: A function that takes an existing row of nodes, and optimizes their splits/assignments based
+      // on their children's actual stats.
+//  }
+
   private void splitLearningRow() { //TODO: Do I want the parent row and child count as arguments here?
     System.out.println("Splitting level: " + currentLevel++);
     System.out.println("Level leafs: " + learningRow.size());
-    int iterations = 0;
-    boolean change = false;
+
+
     int numChildren = (int) Math.max(learningRow.size() * growthRate.getValue(), 2); // At least two children for root
     boolean isTreeLevel = numChildren == learningRow.size() * 2;
     // TODO: Sort the learning row decreasing by their entropy, iterate in that order
@@ -140,13 +144,15 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       }
 
     }
-
+    int iterations = 0;
+    boolean change;
     do {
+      change = false;
       // Find best feature/threshold for each node
       for (DAGLearningNode dagNode : learningRow) {
         // The thresholds are optimized for the first time during initialization (if bestFeature == -1)
         if (iterations == 0 && !(dagNode.getBestFeature() == -1)) {
-          break;
+          break; // Break out this for loop
         }
         if (dagNode.observedClassDistributionIsPure()) {
           // Pure nodes don't need a threshold
@@ -167,7 +173,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
           if (dagNode.findCoherentChildNodeAssignment(learningRow, numChildren)) {
             change = true;
           }
-        } else {
+        } else { // If the node is not pure, we separately optimize its right and left child assignment
           if (dagNode.findRightChildAssignment(learningRow, numChildren)) {
             change = true;
           }
@@ -175,11 +181,10 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
             change = true;
           }
         }
-
-
       }
       iterations++;
     } while (iterations < maxIterations && change);
+    System.out.println("Iterations until stability: " + iterations);
 
     // TODO: Check if adding the new row improves the overall tree entropy. If not, don't create the row
 
@@ -191,23 +196,23 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
     // Assign each parent to their child nodes
     for (DAGLearningNode current : learningRow) {
+//      if (current.getWeightSeen() < Double.MIN_VALUE) {
+//        continue; // tvas: Let's try ignoring empty nodes
+//      }
       int leftNodeIndex = current.getTempLeft();
       int rightNodeIndex = current.getTempRight();
 
       // Create a new split node based on the current parent
       NumericAttributeBinaryTest attTest = new NumericAttributeBinaryTest(
           current.getBestFeature(), current.getBestThreshold(), true);
-      if (current.observedClassDistributionIsPure()) {
-        System.out.println("Splitting a node with a pure distribution:");
-        System.out.println("Node " + current.hashCode() + ": " + Arrays.toString(current.getObservedClassDistribution()));
-      }
+
       SplitNode splitNode = newSplitNode(attTest, current.getObservedClassDistribution(), 2);
 
       // Get the (potentially) existing left and right child nodes and update their dists as necessary
       DAGLearningNode leftChild = childNodes.get(leftNodeIndex);
-      leftChild = createNodeFromExisting(leftChild, current.getLeftHistogram().toArray());
+      leftChild = createNodeFromExisting(leftChild, current.getLeftHistogram().toArray(), splitNode, Branch.LEFT);
       DAGLearningNode rightChild = childNodes.get(rightNodeIndex);
-      rightChild = createNodeFromExisting(rightChild, current.getRightHistogram().toArray());
+      rightChild = createNodeFromExisting(rightChild, current.getRightHistogram().toArray(), splitNode, Branch.RIGHT);
       // Update the collection of child nodes, this way we can retrieve and update them later
       childNodes.set(leftNodeIndex, leftChild);
       childNodes.set(rightNodeIndex, rightChild);
@@ -219,6 +224,16 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       noParentNode[rightNodeIndex] = false;
       if (treeRoot == current) {
         treeRoot = splitNode;
+      } else {
+        // Change the pointers of all the parents for the current node to point to the newly created split node
+        for (Pair<SplitNode, Branch> parentBranch : current.getParents()) {
+          SplitNode parent = parentBranch.getFirst();
+          if (parentBranch.getSecond() == Branch.LEFT) {
+            parent.setChild(0, splitNode);
+          } else {
+            parent.setChild(1, splitNode);
+          }
+        }
       }
     }
 
@@ -236,12 +251,37 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
         learningRow.add(childNodes.get(i));
       }
     }
-
+    System.out.println();
   }
 
-  private DAGLearningNode createNodeFromExisting(DAGLearningNode existingChild, double[] currentDistribution) {
+  private void describeTree(StringBuilder out, int indent) {
+    Stack<Node> nodeStack = new Stack<>();
+
+    nodeStack.push(treeRoot);
+
+    while (!nodeStack.isEmpty()) {
+      Node curNode = nodeStack.pop();
+      if (curNode instanceof SplitNode) {
+        SplitNode splitNode = (SplitNode) curNode;
+        nodeStack.push(splitNode.getChild(0));
+        nodeStack.push(splitNode.getChild(1));
+        splitNode.describeSubtree(this, out, 2);
+      } else {
+        DAGLearningNode learningNode = (DAGLearningNode) curNode;
+        learningNode.describeSubtree(this, out, 2);
+      }
+    }
+  }
+
+  private DAGLearningNode createNodeFromExisting(DAGLearningNode existingChild, double[] currentDistribution , SplitNode parent, Branch branch) {
     // TODO: Ignoring the histograms for now to check what happens if we don't init dists. FIX
-    return new DAGLearningNode(new double[currentDistribution.length],this);
+    if (existingChild == null) {
+      existingChild = new DAGLearningNode(new double[currentDistribution.length], this, parent, branch);
+    } else {
+      existingChild.addParent(parent, branch);
+    }
+    return existingChild;
+
 //    double[] combinedDistribution;
 //    if (existingChild == null) {
 //      combinedDistribution = currentDistribution;
@@ -253,6 +293,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 //        combinedDistribution[i] = previousDistribution[i] + currentDistribution[i];
 //      }
 //    }
+//    return new DAGLearningNode(new double[currentDistribution.length],this);
   }
 
   public AttributeSplitSuggestion[] getSplitSuggestions(ActiveLearningNode node) {
@@ -265,7 +306,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
   @Override
   protected LearningNode newLearningNode(double[] initialClassObservations) {
-    return new DAGLearningNode(initialClassObservations, this);
+    throw new UnsupportedOperationException("We have custom new node creation for HoeffdingDAG!");
   }
 
   @Override

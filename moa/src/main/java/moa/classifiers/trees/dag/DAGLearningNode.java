@@ -29,11 +29,15 @@ import moa.classifiers.trees.HoeffdingTree;
 import moa.classifiers.trees.RandomHoeffdingTree;
 import moa.core.AutoExpandVector;
 import moa.core.sketches.MergeableHistogram;
+import org.apache.commons.math3.util.Pair;
 
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
+
+  // Each entry in this list holds one parent pointer, and the branch
+  private ArrayList<Pair<HoeffdingTree.SplitNode, HoeffdingDAG.Branch>> parents;
 
   private HoeffdingDAG tree;
 
@@ -50,17 +54,28 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
 
   private double entropy;
 
-  public DAGLearningNode(double[] initialClassObservations, HoeffdingDAG tree) {
+  public DAGLearningNode(double[] initialClassObservations, HoeffdingDAG tree, HoeffdingTree.SplitNode parent, HoeffdingDAG.Branch parentBranch) {
     super(initialClassObservations);
     leftHistogram = new ClassHistogram(initialClassObservations.length);
     rightHistogram = new ClassHistogram(initialClassObservations.length);
     this.tree = tree;
+    parents = new ArrayList<>();
+    parents.add(new Pair<>(parent, parentBranch));
     bestFeature = -1;
     bestThreshold = 0.0;
   }
 
+  public void addParent(HoeffdingTree.SplitNode parent, HoeffdingDAG.Branch parentBranch) {
+    if (parents.isEmpty()) {
+      parents = new ArrayList<>();
+    }
+    parents.add(new Pair<>(parent, parentBranch));
+  }
+
+
 
   @Override
+
   public void learnFromInstance(Instance inst, HoeffdingTree ht) {
     // Do the learning as usual
     super.learnFromInstance(inst, ht);
@@ -79,6 +94,7 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
 
   /**
    * Finds the best feature and threshold combination for the node, given all the parent nodes.
+   *
    * @param parentNodes The row of parent nodes that are currently the active learning leafs.
    * @return True if the best feature/threshold combination changed, false otherwise.
    */
@@ -121,8 +137,8 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
         for (int k = 0; k < histsPerClass.size(); k++) {
           // For each class, get the new number of points at each side of the split
           MergeableHistogram classHist = histsPerClass.get(k);
-          double samplesLeft = classHist.getSum(newSplitPoint);
-          double samplesRight = classHist.getTotalCount() - samplesLeft;
+          double samplesLeft = classHist == null ? 0 : classHist.getSum(newSplitPoint);
+          double samplesRight = classHist == null ? 0 : classHist.getTotalCount() - samplesLeft;
           // Update the class histogram counts. NB: entropies are not re-calculated until the call to error(true) below
           errorFunction.setClassCounts(k, (int) samplesLeft, (int) samplesRight); // TODO: Counts should be doubles
         }
@@ -146,9 +162,10 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
       }
     }
 
-    // TODO: Is this OK or do we need to recalculate these?
-    leftHistogram = bestLeftHistogram;
-    rightHistogram = bestRightHistogram;
+//    // TODO: Is this OK or do we need to recalculate these?
+//    leftHistogram = bestLeftHistogram;
+//    rightHistogram = bestRightHistogram;
+    updateLeftRightHistogram();
 
     if (bestFeature == -1) {
       System.out.println("Node " + this.toString() + " failed to get a new split feature.");
@@ -295,8 +312,8 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     for (int k = 0; k < histsPerClass.size(); k++) {
       // For each class, get the new number of points at each side of the split
       MergeableHistogram classHist = histsPerClass.get(k);
-      double samplesLeft = classHist.getSum(bestThreshold);
-      double samplesRight = classHist.getTotalCount() - samplesLeft;
+      double samplesLeft = classHist == null ? 0 : classHist.getSum(bestThreshold);
+      double samplesRight = classHist == null ? 0 : classHist.getTotalCount() - samplesLeft;
       // Update the class histogram counts.
       leftHistogram.set(k, samplesLeft);
       rightHistogram.set(k, samplesRight);
@@ -318,6 +335,7 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
 
   /**
    * Returns an Optional which contains the best split suggestion in the case where we should split, empty otherwise.
+   *
    * @return An optional split suggestion. If the node should be split it contains the best split suggestion,
    * otherwise it's empty.
    */
@@ -415,5 +433,9 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
 
   public double getBestThreshold() {
     return bestThreshold;
+  }
+
+  public ArrayList<Pair<HoeffdingTree.SplitNode, HoeffdingDAG.Branch>> getParents() {
+    return parents;
   }
 }

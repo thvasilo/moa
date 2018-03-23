@@ -39,6 +39,10 @@ public class LDBHistogram implements MergeableHistogram<LDBHistogram> {
     histogram = DoublesSketch.builder().setK(numBins).build();
   }
 
+  private LDBHistogram() {
+    histogram = DoublesSketch.builder().build();
+  }
+
   @Override
   public LDBHistogram merge(LDBHistogram other) {
     DoublesUnion union = DoublesUnion.builder().build();
