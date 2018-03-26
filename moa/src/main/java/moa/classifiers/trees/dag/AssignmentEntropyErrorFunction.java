@@ -64,7 +64,7 @@ public class AssignmentEntropyErrorFunction {
       dataCount += leftHist.getMass() + rightHist.getMass();
 
       // Skip if the current dagNode is the current parent
-      if (currentParent == dagNode) {// TODO: Is this the right way to check for equality here?
+      if (currentParent == dagNode) {
         continue;
       }
 
@@ -72,7 +72,7 @@ public class AssignmentEntropyErrorFunction {
       histograms[rightNode] = histograms[rightNode].merge(rightHist);
     }
 
-    // Calculate the entropes based on the histograms we just built
+    // Calculate the entropies based on the histograms we just built
 
     entropies = new double[childNodeCount];
 

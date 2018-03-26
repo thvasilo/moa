@@ -36,6 +36,9 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
 
+
+  private int leafID = counter++;
+  private static int counter = 0;
   // Each entry in this list holds one parent pointer, and the branch
   private ArrayList<Pair<HoeffdingTree.SplitNode, HoeffdingDAG.Branch>> parents;
 
@@ -437,5 +440,26 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
 
   public ArrayList<Pair<HoeffdingTree.SplitNode, HoeffdingDAG.Branch>> getParents() {
     return parents;
+  }
+
+  public int getLeafID() {
+    return leafID;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    DAGLearningNode that = (DAGLearningNode) o;
+    return leafID == that.getLeafID();
+  }
+
+  @Override
+  public int hashCode() {
+    return leafID;
+  }
+
+  public boolean isReadyToSplit() {
+    return readyToSplit;
   }
 }
