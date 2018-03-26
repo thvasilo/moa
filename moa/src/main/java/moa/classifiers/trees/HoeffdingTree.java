@@ -180,6 +180,10 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
         "The number of instances a leaf should observe before permitting Naive Bayes.",
         0, 0, Integer.MAX_VALUE);
 
+    public IntOption maxNodesOption = new IntOption(
+        "maxNodes", 'x', "The maximum number of nodes the tree is allowed to grow into. -1 means no limit",
+        -1, -1, Integer.MAX_VALUE);
+
     public static class FoundNode {
 
         public Node node;
@@ -713,7 +717,11 @@ public class HoeffdingTree extends AbstractClassifier implements MultiClassClass
                 if (!disableMemoryManagement.isSet()) {
                     enforceTrackerLimit();
                 }
-
+                if (maxNodesOption.getValue() != -1) {
+                    if (activeLeafNodeCount + inactiveLeafNodeCount + decisionNodeCount >= maxNodesOption.getValue()) {
+                        growthAllowed = false;
+                    }
+                }
             }
         }
     }
