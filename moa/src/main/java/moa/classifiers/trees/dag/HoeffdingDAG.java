@@ -127,6 +127,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     System.out.println("Nodes ready to split: " + readyNodes.size());
 
     learningRow.removeIf(curNode -> !readyNodes.contains(curNode));
+    // TODO: Turn non-ready nodes to inactive, or keep them in the learning row?
     assert learningRow.size() > 0 : "There should always be at least one learning node!";
 
     // Ensure we get two children for the root
@@ -305,6 +306,7 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
   private DAGLearningNode createNodeFromExisting(DAGLearningNode existingChild, double[] currentDistribution , SplitNode parent, Branch branch) {
     // TODO: Ignoring the histograms for now to check what happens if we don't init dists. FIX
+    // If the node did not exist create a new one, otherwise just add to its list of parents
     if (existingChild == null) {
       existingChild = new DAGLearningNode(new double[currentDistribution.length], this, parent, branch);
     } else {

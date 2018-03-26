@@ -115,7 +115,7 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     ClassHistogram bestLeftHistogram = errorFunction.getLeftEntropyHistogram().toClassHistogram();
     ClassHistogram bestRightHistogram = errorFunction.getRightEntropyHistogram().toClassHistogram();
 
-    // We then reset the current node's histograms. These are the ones that change as we move the node's split point.
+    // We then reset the current node's error histograms. These are the ones that change as we move the node's split point.
     errorFunction.resetHistograms();
 
     boolean changed = false;
@@ -127,7 +127,7 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
     for (int localAttIndex = 0; localAttIndex < this.numAttributes - 1; localAttIndex++) {
       int overallAttIndex = this.listAttributes[localAttIndex];
       // To get candidate split points, we get the overall distribution of the attribute
-      // disreagarding the class, and create a uniform histogram out of that.
+      // disregarding the class, and create a uniform histogram out of that.
       // The bin borders give us the candidate split points. See SPDT Sec. 2.2.
       SPDTNumericClassObserver obs = (SPDTNumericClassObserver) attributeObservers.get(overallAttIndex);
       AutoExpandVector<MergeableHistogram> histsPerClass = obs.getAttHistPerClass();

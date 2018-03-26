@@ -64,28 +64,28 @@ public class ThresholdEntropyErrorFunction {
         continue;
       }
 
-      int leftNode = otherParent.getTempLeft();
-      int rightNode = otherParent.getTempRight();
+      int otherLeftNode = otherParent.getTempLeft();
+      int otherRightNode = otherParent.getTempRight();
       ClassHistogram otherLeftHistogram = otherParent.getLeftHistogram();
       ClassHistogram otherRightHistogram = otherParent.getRightHistogram();
 
       // We iterate though all the child nodes, if one of the children of the other parents has the current parent
       // as a parent as well, we add the histograms of those parents to the total.
-      if (leftNode == otherParent.getTempLeft()) {
+      if (currentParent.getTempLeft() == otherLeftNode) {
         // Current's left child is other's left child as well
         leftHistogram = leftHistogram.merge(otherLeftHistogram);
       }
-      if (rightNode == otherParent.getTempRight()) {
+      if (currentParent.getTempRight() == otherRightNode) {
         // Current's right child is other's right child as well
         rightHistogram = rightHistogram.merge(otherRightHistogram);
       }
-      if (leftNode == otherParent.getTempRight()) {
-        // Current's left child is other's right child as well
-        leftHistogram = leftHistogram.merge(otherRightHistogram);
-      }
-      if (rightNode == otherParent.getTempLeft()) {
-        // Current's right child is other's left child as well
+      if (currentParent.getTempRight() == otherLeftNode) {
+        // Current's right child is also other's left child
         rightHistogram = rightHistogram.merge(otherLeftHistogram);
+      }
+      if (currentParent.getTempLeft() == otherRightNode) {
+        // Current's left child is also other right child
+        leftHistogram = leftHistogram.merge(otherLeftHistogram);
       }
     }
 
