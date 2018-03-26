@@ -26,13 +26,14 @@ import moa.classifiers.core.attributeclassobservers.AttributeClassObserver;
 import moa.classifiers.core.attributeclassobservers.SPDTNumericClassObserver;
 import moa.classifiers.core.conditionaltests.NumericAttributeBinaryTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
+import moa.classifiers.trees.ARFHoeffdingTree;
 import moa.classifiers.trees.RandomHoeffdingTree;
 import moa.core.AutoExpandVector;
 import org.apache.commons.math3.util.Pair;
 
 import java.util.*;
 
-public class HoeffdingDAG extends RandomHoeffdingTree {
+public class HoeffdingDAG extends ARFHoeffdingTree {
   public FloatOption growthRate = new FloatOption("growthRate",
       'u', "The rate at which we allow DAG width levels to grow. 2 is equivalent to a tree.",
       1.5, 1.0 + Double.MIN_VALUE, 2.0);
@@ -49,10 +50,8 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
   private int maxBins = 64;
 
   private int currentLevel = 0;
-  private int weightSinceLastLevel = 0;
 
-  private Set<ActiveLearningNode> readyNodes = new HashSet<>();
-  private ArrayList<DAGLearningNode> allChildNodes = new ArrayList<>();
+  private Set<DAGLearningNode> readyNodes = new HashSet<>();
 
   SplitCriterion activeSplitCriterion;
 
@@ -69,7 +68,6 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
   @Override
   public void trainOnInstanceImpl(Instance inst) {
-    weightSinceLastLevel++;
     if (this.treeRoot == null) {
       this.treeRoot = new DAGLearningNode(new double[0], this, null, Branch.NULL);
       learningRow.add((DAGLearningNode) this.treeRoot);
@@ -79,37 +77,29 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
     Node leafNode = foundNode.node;
 
     if (leafNode instanceof LearningNode) {
-      LearningNode learningNode = (LearningNode) leafNode;
-      DAGLearningNode dagNode = (DAGLearningNode) learningNode;
-      if (!learningRow.contains(dagNode)) {
-//        System.out.println("WTF: A found node was not in the learning row!");
-      }
+      DAGLearningNode dagNode = (DAGLearningNode) leafNode;
+      dagNode.learnFromInstance(inst, this);
 
-
-      learningNode.learnFromInstance(inst, this);
-      if (this.growthAllowed && (learningNode instanceof ActiveLearningNode)) {
-        ActiveLearningNode activeLearningNode = (ActiveLearningNode) learningNode;
-        double weightSeen = activeLearningNode.getWeightSeen();
-
-        if (weightSeen - activeLearningNode.getWeightSeenAtLastSplitEvaluation() >= this.gracePeriodOption.getValue()) {
+      if (growthAllowed) {
+        double weightSeen = dagNode.getWeightSeen();
+        if (weightSeen - dagNode.getWeightSeenAtLastSplitEvaluation() >= gracePeriodOption.getValue()) {
 
           if (!dagNode.isReadyToSplit()) {
             Optional<AttributeSplitSuggestion> bestSplitOptional = dagNode.checkForSplit();
-            activeLearningNode.setWeightSeenAtLastSplitEvaluation(weightSeen);
+            dagNode.setWeightSeenAtLastSplitEvaluation(weightSeen);
             if (bestSplitOptional.isPresent()) {
-              readyNodes.add(activeLearningNode);
+              readyNodes.add(dagNode);
             }
           }
           // tvas: When should we instantiate the next level of nodes?
           if (readyNodes.size() / learningRow.size() > 0.5) { // TODO: Placeholder, need to find a reasonable criterion!!
-            weightSinceLastLevel = 0;
             splitLearningRow();
             readyNodes.clear();
           }
         }
       }
     }
-    if (this.trainingWeightSeenByModel % this.memoryEstimatePeriodOption.getValue() == 0
+    if (trainingWeightSeenByModel % memoryEstimatePeriodOption.getValue() == 0
         && !disableMemoryManagement.isSet()) {
       estimateModelByteSizes();
     }
@@ -121,7 +111,6 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 //  }
 
   private void splitLearningRow() { //TODO: Do I want the parent row and child count as arguments here?
-    allChildNodes.clear();
     System.out.println("Splitting level: " + currentLevel++);
     System.out.println("Level leafs: " + learningRow.size());
     System.out.println("Nodes ready to split: " + readyNodes.size());
@@ -212,6 +201,9 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       iterations++;
     } while (iterations < maxIterations && change);
     System.out.println("Iterations until stability: " + iterations);
+    System.out.println("Changes made:");
+    System.out.println("Threshold changes: " + thresholdChanges);
+    System.out.println("Assignment changes:" + assignmentChanges);
 
     // TODO: Check if adding the new row improves the overall tree entropy. If not, don't create the row
 
@@ -223,9 +215,6 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
 
     // Assign each parent to their child nodes
     for (DAGLearningNode current : learningRow) {
-//      if (current.getWeightSeen() < Double.MIN_VALUE) {
-//        continue; // tvas: Let's try ignoring empty nodes
-//      }
       int leftNodeIndex = current.getTempLeft();
       int rightNodeIndex = current.getTempRight();
 
@@ -248,8 +237,6 @@ public class HoeffdingDAG extends RandomHoeffdingTree {
       // Set the created child nodes as the split node's children
       splitNode.setChild(0, leftChild);
       splitNode.setChild(1, rightChild);
-      allChildNodes.add(leftChild);
-      allChildNodes.add(rightChild);
 
       noParentNode[leftNodeIndex] = false;
       noParentNode[rightNodeIndex] = false;

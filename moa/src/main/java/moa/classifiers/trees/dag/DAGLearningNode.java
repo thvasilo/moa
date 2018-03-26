@@ -23,10 +23,9 @@ import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.core.AttributeSplitSuggestion;
 import moa.classifiers.core.attributeclassobservers.AttributeClassObserver;
 import moa.classifiers.core.attributeclassobservers.SPDTNumericClassObserver;
-import moa.classifiers.core.conditionaltests.InstanceConditionalTest;
 import moa.classifiers.core.splitcriteria.SplitCriterion;
+import moa.classifiers.trees.ARFHoeffdingTree;
 import moa.classifiers.trees.HoeffdingTree;
-import moa.classifiers.trees.RandomHoeffdingTree;
 import moa.core.AutoExpandVector;
 import moa.core.sketches.MergeableHistogram;
 import org.apache.commons.math3.util.Pair;
@@ -34,7 +33,7 @@ import org.apache.commons.math3.util.Pair;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
-public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
+public class DAGLearningNode extends ARFHoeffdingTree.RandomLearningNode {
 
 
   private int leafID = counter++;
@@ -58,7 +57,7 @@ public class DAGLearningNode extends RandomHoeffdingTree.RandomLearningNode {
   private double entropy;
 
   public DAGLearningNode(double[] initialClassObservations, HoeffdingDAG tree, HoeffdingTree.SplitNode parent, HoeffdingDAG.Branch parentBranch) {
-    super(initialClassObservations);
+    super(initialClassObservations, tree.subspaceSizeOption.getValue());
     leftHistogram = new ClassHistogram(initialClassObservations.length);
     rightHistogram = new ClassHistogram(initialClassObservations.length);
     this.tree = tree;
