@@ -90,37 +90,14 @@ public class SineGenerator extends AbstractOptionHandler implements
 
     protected static ClassFunction[] classificationFunctions = {
         // Values below the curve y = sin(x) are classified as positive.
-        new ClassFunction() {
-
-            @Override
-            public int determineClass(double x, double y) {
-                return (y < Math.sin(x)) ? 0 : 1;
-            }
-        },
+        (x, y) -> (y < Math.sin(x)) ? 0 : 1,
         // Values below the curve y = sin(x) are classified as negative.
-        new ClassFunction() {
-
-            @Override
-            public int determineClass(double x, double y) {
-                return (y >= Math.sin(x)) ? 0 : 1;
-            }
-        },
+        (x, y) -> (y >= Math.sin(x)) ? 0 : 1,
         // Values below the curve y = 0.5 + 0.3*sin(3*PI*x) are classified as positive.
-        new ClassFunction() {
-
-            @Override
-            public int determineClass(double x, double y) {
-                return (y < 0.5 + 0.3 * Math.sin(3 * Math.PI * x)) ? 0 : 1;
-            }
-        },
+        (x, y) -> (y < 0.5 + 0.3 * Math.sin(3 * Math.PI * x)) ? 0 : 1,
         // Values below the curve y = 0.5 + 0.3*sin(3*PI*x) are classified as negative.
-        new ClassFunction() {
-
-            @Override
-            public int determineClass(double x, double y) {
-                return (y >= 0.5 + 0.3 * Math.sin(3 * Math.PI * x)) ? 0 : 1;
-            }
-        },};
+        (x, y) -> (y >= 0.5 + 0.3 * Math.sin(3 * Math.PI * x)) ? 0 : 1
+    };
 
     @Override
     public void getDescription(StringBuilder sb, int indent) {
