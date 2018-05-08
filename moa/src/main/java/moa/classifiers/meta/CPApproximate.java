@@ -24,7 +24,7 @@ import com.yahoo.labs.samoa.instances.Instance;
 import java.lang.reflect.Array;
 import java.util.*;
 
-public class OoBConformalApproximate extends OoBConformalRegressor{
+public class CPApproximate extends OoBConformalRegressor{
 
   @Override
   protected void updateCalibrationScores() {
