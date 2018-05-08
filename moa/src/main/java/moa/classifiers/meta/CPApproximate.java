@@ -21,10 +21,9 @@ package moa.classifiers.meta;
 
 import com.yahoo.labs.samoa.instances.Instance;
 
-import java.lang.reflect.Array;
 import java.util.*;
 
-public class CPApproximate extends OoBConformalRegressor{
+public class CPApproximate extends CPExact {
 
   @Override
   protected void updateCalibrationScores() {

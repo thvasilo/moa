@@ -25,7 +25,7 @@ import moa.core.MiscUtils;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class PredictiveVarianceRF extends OoBConformalRegressor {
+public class PredictiveVarianceRF extends CPExact {
 
   @Override
   public void trainOnInstanceImpl(Instance inst) {

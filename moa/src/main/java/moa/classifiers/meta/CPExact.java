@@ -36,7 +36,7 @@ import org.apache.commons.math3.distribution.NormalDistribution;
 import static moa.classifiers.meta.AdaptiveRandomForest.calculateSubspaceSize;
 
 // There ought to be an abstract class for CP that implements the common stuff (like the arraylist for scores)
-public class OoBConformalRegressor extends ConformalRegressor implements Parallel {
+public class CPExact extends ConformalRegressor implements Parallel {
   protected double quantileUpper;
   protected double quantileLower;
 
