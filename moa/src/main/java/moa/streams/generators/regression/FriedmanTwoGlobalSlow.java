@@ -32,32 +32,35 @@ import moa.tasks.TaskMonitor;
  * [1] L. Friedman, "Bagging Predictors", Machine Learning, 1996
  * [2] E. Ikonomovska "Learning model trees from evolving data streams", 2010, Data Min. Knowl. Disc.
  */
-public class FriedmanTwo extends FriedmanOne {
+public class FriedmanTwoGlobalSlow extends FriedmanOneGlobalSlow {
   @Override
   public Example<Instance> nextInstance() {
     numInstances++;
 
-    double x1, x2, x3, x4;
-    double value;
-    x1 = instanceRandom.nextDouble() * 100;
-    assert x1 >= 0 && x1 <= 100 : x1;
-    x2 = instanceRandom.nextDouble() * 520 * Math.PI;
-    x2 += 40 * Math.PI;
-    assert x2 >= 40 * Math.PI && x2 <= 560 * Math.PI: x2;
-    x3 = instanceRandom.nextDouble();
-    x4 = instanceRandom.nextDouble() * 10;
-    x4 += 1;
-    assert x4 >= 1 && x4 <= 11: x4;
+    double x1 = 0, x2 = 0, x3 = 0, x4 = 0;
+    double value = Double.NaN;
+    while (Double.isNaN(value)) {
+      x1 = instanceRandom.nextDouble() * 100;
+      assert x1 >= 0 && x1 <= 100 : x1;
+      x2 = instanceRandom.nextDouble() * 520 * Math.PI;
+      x2 += 40 * Math.PI;
+      assert x2 >= 40 * Math.PI && x2 <= 560 * Math.PI: x2;
+      x3 = instanceRandom.nextDouble();
+      x4 = instanceRandom.nextDouble() * 10;
+      x4 += 1;
+      assert x4 >= 1 && x4 <= 11: x4;
 
-    // Global slow gradual drift from "Learning model trees from evolving data streams"
-    value = Math.pow(Math.pow(x1, 2) + (x2 * x3 - Math.pow(1 / (x2 * x4), 2)), 0.5) + instanceRandom.nextGaussian();
-    if (numInstances > firstChangePoint.getValue()) {
-      value = Math.pow(Math.pow(x4, 2) + (x2 * x1 - Math.pow(1 / (x2 * x3), 2)), 0.5) + instanceRandom.nextGaussian();
-    }
-    if (numInstances > secondChangePoint.getValue()) {
-      value = Math.pow(Math.pow(x3, 2) + (x4 * x2 - Math.pow(1 / (x2 * x1), 2)), 0.5) + instanceRandom.nextGaussian();
+      // Global slow gradual drift from "Learning model trees from evolving data streams"
+      value = Math.pow(Math.pow(x1, 2) + (x2 * x3 - Math.pow(1 / (x2 * x4), 2)), 0.5) + instanceRandom.nextGaussian();
+      if (numInstances > firstChangePoint.getValue()) {
+        value = Math.pow(Math.pow(x4, 2) + (x2 * x1 - Math.pow(1 / (x2 * x3), 2)), 0.5) + instanceRandom.nextGaussian();
+      }
+      if (numInstances > secondChangePoint.getValue()) {
+        value = Math.pow(Math.pow(x3, 2) + (x4 * x2 - Math.pow(1 / (x2 * x1), 2)), 0.5) + instanceRandom.nextGaussian();
+      }
     }
 
+    assert !Double.isNaN(value);
     InstancesHeader header = getHeader();
     Instance inst = new DenseInstance(streamHeader.numAttributes());
     inst.setValue(0, x1);

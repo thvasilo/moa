@@ -37,7 +37,7 @@ import java.util.Random;
  * [1] L. Friedman, "Bagging Predictors", Machine Learning, 1996
  * [2] E. Ikonomovska "Learning model trees from evolving data streams", 2010, Data Min. Knowl. Disc.
  */
-public class FriedmanOne extends AbstractOptionHandler implements InstanceStream {
+public class FriedmanOneGlobalSlow extends AbstractOptionHandler implements InstanceStream {
 
   public IntOption firstChangePoint = new IntOption("firstChangePoint", 'f',
       "The position of the first change point.", 250_000);
