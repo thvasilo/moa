@@ -19,30 +19,23 @@ package moa.streams.generators.regression;
  * #L%
  */
 
-/**
- * Friedman data #2 [1] with concept drift similar to the one described in [2], Appendix C.
- * [1] L. Friedman, "Bagging Predictors", Machine Learning, 1996
- * [2] E. Ikonomovska "Learning model trees from evolving data streams", 2010, Data Min. Knowl. Disc.
- */
-public class FriedmanTwoGlobalSlow extends FriedmanTwoGenerator {
-
+public class FriedmanThreeGlobalSlow extends FriedmanTwoGenerator{
   @Override
   protected double calculateValue(double x1, double x2, double x3, double x4, double x5) {
     // Global slow gradual drift from "Learning model trees from evolving data streams"
-    double value = Math.pow(Math.pow(x1, 2) + (x2 * x3 - Math.pow(1 / (x2 * x4), 2)), 0.5) + instanceRandom.nextGaussian();
+    double value = Math.atan((x2 * x3 - 1/(x2 *x4)) / x1) + instanceRandom.nextGaussian();
     if (numInstances > firstChangePoint.getValue()) {
       long instancesSinceChange = numInstances - firstChangePoint.getValue();
       if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
-        value = Math.pow(Math.pow(x4, 2) + (x2 * x1 - Math.pow(1 / (x2 * x3), 2)), 0.5) + instanceRandom.nextGaussian();
+        value = Math.atan( (x1 * x4 - 1/(x2 *x3)) / x2) + instanceRandom.nextGaussian();
       }
     }
     if (numInstances > secondChangePoint.getValue()) {
       long instancesSinceChange = numInstances - secondChangePoint.getValue();
       if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
-        value = Math.pow(Math.pow(x3, 2) + (x4 * x2 - Math.pow(1 / (x2 * x1), 2)), 0.5) + instanceRandom.nextGaussian();
+        value = Math.atan( (x2 * x4 - 1/(x2 *x1)) / x1) + instanceRandom.nextGaussian();
       }
     }
     return value;
   }
-
 }
