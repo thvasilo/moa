@@ -26,13 +26,13 @@ public class FriedmanThreeGlobalSlow extends FriedmanTwoGenerator{
     double value = Math.atan((x2 * x3 - 1/(x2 *x4)) / x1) + instanceRandom.nextGaussian();
     if (numInstances > firstChangePoint.getValue()) {
       long instancesSinceChange = numInstances - firstChangePoint.getValue();
-      if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
+      if ((double) instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
         value = Math.atan( (x1 * x4 - 1/(x2 *x3)) / x2) + instanceRandom.nextGaussian();
       }
     }
     if (numInstances > secondChangePoint.getValue()) {
       long instancesSinceChange = numInstances - secondChangePoint.getValue();
-      if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
+      if ((double) instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
         value = Math.atan( (x2 * x4 - 1/(x2 *x1)) / x1) + instanceRandom.nextGaussian();
       }
     }

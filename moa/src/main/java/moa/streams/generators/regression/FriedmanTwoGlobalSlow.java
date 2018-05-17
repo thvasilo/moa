@@ -32,13 +32,13 @@ public class FriedmanTwoGlobalSlow extends FriedmanTwoGenerator {
     double value = Math.pow(Math.pow(x1, 2) + (x2 * x3 - Math.pow(1 / (x2 * x4), 2)), 0.5) + instanceRandom.nextGaussian();
     if (numInstances > firstChangePoint.getValue()) {
       long instancesSinceChange = numInstances - firstChangePoint.getValue();
-      if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
+      if ((double) instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
         value = Math.pow(Math.pow(x4, 2) + (x2 * x1 - Math.pow(1 / (x2 * x3), 2)), 0.5) + instanceRandom.nextGaussian();
       }
     }
     if (numInstances > secondChangePoint.getValue()) {
       long instancesSinceChange = numInstances - secondChangePoint.getValue();
-      if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
+      if ((double) instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
         value = Math.pow(Math.pow(x3, 2) + (x4 * x2 - Math.pow(1 / (x2 * x1), 2)), 0.5) + instanceRandom.nextGaussian();
       }
     }

@@ -33,13 +33,13 @@ public class FriedmanOneGlobalSlow extends FriedmanOneGenerator {
     value = 10 * Math.sin(Math.PI * x1 * x2) + Math.pow(20 * (x3 - 0.5), 2) + 10 * x4 + 5 * x5 + instanceRandom.nextGaussian();
     if (numInstances > firstChangePoint.getValue()) {
       long instancesSinceChange = numInstances - firstChangePoint.getValue();
-      if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
+      if ((double) instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
         value = 10 * Math.sin(Math.PI * x4 * x5) + Math.pow(20 * (x2 - 0.5), 2) + 10 * x1 + 5 * x3 + instanceRandom.nextGaussian();
       }
     }
     if (numInstances > secondChangePoint.getValue()) {
       long instancesSinceChange = numInstances - secondChangePoint.getValue();
-      if (instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
+      if ((double) instancesSinceChange / driftLength.getValue() > instanceRandom.nextDouble()) {
         value = 10 * Math.sin(Math.PI * x2 * x5) + Math.pow(20 * (x4 - 0.5), 2) + 10 * x3 + 5 * x1 + instanceRandom.nextGaussian();
       }
     }
