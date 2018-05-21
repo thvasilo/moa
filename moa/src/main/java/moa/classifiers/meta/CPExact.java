@@ -50,6 +50,8 @@ public class CPExact extends ConformalRegressor implements Parallel {
   protected ExecutorService executor;
   protected CompletionService<double[]> ecs;
 
+  protected MomentAggregate meanLabel = new MomentAggregate(0, 0, 0);
+
   public IntOption ensembleSizeOption = new IntOption("ensembleSize", 's',
       "The number of trees in the ensemble.", 10, 1, Integer.MAX_VALUE);
 
@@ -71,6 +73,7 @@ public class CPExact extends ConformalRegressor implements Parallel {
   @Override
   public void trainOnInstanceImpl(Instance inst) {
 
+    meanLabel = updateMoments(meanLabel, inst.classValue());
     HashMap<Integer, Double> oobTreeIndicesToPredictions = commonTraining(inst);
     // TODO: Have a "burn-in" period for the algo, where we ensure the first x
     // data points end up as OoB for at least one learner. That way we fill up
@@ -194,12 +197,13 @@ public class CPExact extends ConformalRegressor implements Parallel {
   public double[] getVotesForInstance(Instance inst) {
     MomentAggregate curAggegate = getMoments(inst);
     if (calibrationScores.length < 10) {
-      // TODO: Predictive sd is a bad estimate, come up with something else
-      // tvas: Depending on the lambda setting, it could be a while until we get 10 cal instances, careful!
-      // One option: https://stats.stackexchange.com/a/255131/16052
-      return calculateGaussianInterval(curAggegate.mean, Math.sqrt(curAggegate.variance));
+      return new double[]{0, 0};
     }
     double interval = inverseErrorFunction(confidenceOption.getValue());
+    // Guard against outlier intervals
+//    if (interval > meanLabel.mean * 100) {
+//      return new double[]{0, 0};
+//    }
     return new double[]{curAggegate.mean - interval, curAggegate.mean + interval};
   }
 
